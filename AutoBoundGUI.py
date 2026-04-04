@@ -6,7 +6,8 @@ from tkinter import Tk, Frame, Menu, StringVar
 import webbrowser
 import cv2
 from customtkinter import (CTk, 
-                           CTkButton, 
+                           CTkButton,
+                           CTkFrame,
                            CTkEntry, 
                            CTkFont, 
                            CTkImage,
@@ -16,7 +17,7 @@ from customtkinter import (CTk,
                            filedialog, 
                            set_appearance_mode,
                            set_default_color_theme)
-from PIL import Image
+from PIL import Image, ImageTk
 
 app_name     = "AutoBound"
 company_name = "ADNE"
@@ -27,6 +28,18 @@ githubme     = "https://github.com/Baslisk/AutoBound"
 windows_subversion   = int(platform.version().split('.')[2])
 
 transparent_color = "#080808"
+
+# Bounding box tool state
+bbox_tool_active  = False
+bbox_start_x      = None
+bbox_start_y      = None
+current_rect_id   = None
+bboxes            = []
+annotation_canvas = None
+canvas_photo      = None
+bbox_button       = None
+
+MIN_BBOX_SIZE = 2  # minimum pixel width/height for a valid bounding box
 
 supported_file_extensions = ['.mp4', '.MP4',
                             '.webm', '.WEBM',
@@ -186,32 +199,127 @@ def open_files_action():
     if supported_files_counter > 0:
         place_up_background()
 
-        global scrollable_frame_file_list
-        scrollable_frame_file_list = ScrollableImagesTextFrame(master = window, 
-                                                               fg_color = transparent_color, 
-                                                               bg_color = transparent_color)
-        scrollable_frame_file_list.place(relx = 0.5, 
-                                         rely = 0.25, 
-                                         relwidth = 1.0, 
-                                         relheight = 0.475, 
-                                         anchor = tkinter.CENTER)
-        
-        #scrollable_frame_file_list.add_clean_button()
+        first_file = supported_files_list[0]
+        cap = cv2.VideoCapture(first_file)
+        ret, frame = cap.read()
+        cap.release()
 
-        for index in range(supported_files_counter):
-            actual_file = supported_files_list[index]
-            video_label, ctkimage = extract_video_info(actual_file)
-            scrollable_frame_file_list.add_item(text_to_show = video_label, 
-                                                image = ctkimage,
-                                                file_element = actual_file)
-            remove_file("temp.jpg")
-    
-        info_message.set("Ready")
+        if ret:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(frame_rgb)
+            place_annotation_canvas()
+            window.update_idletasks()
+            show_pil_image_on_canvas(pil_image)
+
+        info_message.set("Ready — " + str(supported_files_counter) + " file(s) loaded")
 
     else: 
         info_message.set("Not supported files :(")
 
+def toggle_bbox_tool():
+    global bbox_tool_active
+    bbox_tool_active = not bbox_tool_active
+    if bbox_button is None:
+        return
+    if bbox_tool_active:
+        bbox_button.configure(fg_color="#6040D0", text="⬜ Bounding Box  ✓")
+        if annotation_canvas is not None:
+            annotation_canvas.configure(cursor="crosshair")
+    else:
+        bbox_button.configure(fg_color="#3a3a3a", text="⬜ Bounding Box")
+        if annotation_canvas is not None:
+            annotation_canvas.configure(cursor="")
+
+def on_canvas_mouse_press(event):
+    global bbox_start_x, bbox_start_y, current_rect_id
+    if not bbox_tool_active:
+        return
+    bbox_start_x    = event.x
+    bbox_start_y    = event.y
+    current_rect_id = annotation_canvas.create_rectangle(
+        bbox_start_x, bbox_start_y, event.x, event.y,
+        outline="red", width=2, tags="bbox"
+    )
+
+def on_canvas_mouse_drag(event):
+    if not bbox_tool_active or bbox_start_x is None or current_rect_id is None:
+        return
+    annotation_canvas.coords(current_rect_id, bbox_start_x, bbox_start_y, event.x, event.y)
+
+def on_canvas_mouse_release(event):
+    global bbox_start_x, bbox_start_y, current_rect_id
+    if not bbox_tool_active or bbox_start_x is None:
+        return
+    x1 = min(bbox_start_x, event.x)
+    y1 = min(bbox_start_y, event.y)
+    x2 = max(bbox_start_x, event.x)
+    y2 = max(bbox_start_y, event.y)
+    if x2 - x1 <= MIN_BBOX_SIZE or y2 - y1 <= MIN_BBOX_SIZE:
+        if current_rect_id is not None:
+            annotation_canvas.delete(current_rect_id)
+    else:
+        bboxes.append((x1, y1, x2, y2))
+    bbox_start_x    = None
+    bbox_start_y    = None
+    current_rect_id = None
+
+def show_pil_image_on_canvas(pil_image):
+    global canvas_photo
+    if annotation_canvas is None:
+        return
+    window.update_idletasks()
+    canvas_w = annotation_canvas.winfo_width()
+    canvas_h = annotation_canvas.winfo_height()
+    if canvas_w <= 1 or canvas_h <= 1:
+        canvas_w = int(0.96 * window.winfo_width())
+        canvas_h = int(0.83 * window.winfo_height())
+    img_w, img_h = pil_image.size
+    scale  = min(canvas_w / img_w, canvas_h / img_h)
+    new_w  = int(img_w * scale)
+    new_h  = int(img_h * scale)
+    pil_image    = pil_image.resize((new_w, new_h), Image.LANCZOS)
+    canvas_photo = ImageTk.PhotoImage(pil_image)
+    annotation_canvas.delete("all")
+    x_off = (canvas_w - new_w) // 2
+    y_off = (canvas_h - new_h) // 2
+    annotation_canvas.create_image(x_off, y_off, anchor="nw", image=canvas_photo)
+
 # UI Elements -------------------------
+
+def place_toolbar():
+    global bbox_button
+    toolbar_bg = CTkLabel(master     = window,
+                          text       = "",
+                          fg_color   = "#1e1e1e",
+                          corner_radius = 0)
+    toolbar_bg.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=0.075, anchor=tkinter.NW)
+
+    bbox_button = CTkButton(master       = window,
+                            width        = 155,
+                            height       = 33,
+                            text         = "⬜ Bounding Box",
+                            font         = bold11,
+                            fg_color     = "#3a3a3a",
+                            hover_color  = "#4a4a4a",
+                            command      = toggle_bbox_tool)
+    bbox_button.place(relx=0.01, rely=0.0375, anchor=tkinter.W)
+
+def place_annotation_canvas():
+    global annotation_canvas
+    if annotation_canvas is not None:
+        annotation_canvas.delete("all")
+        bboxes.clear()
+        return
+    annotation_canvas = tkinter.Canvas(window,
+                                       bg="#1a1a1a",
+                                       highlightthickness=1,
+                                       highlightbackground="#3a3a3a")
+    annotation_canvas.place(relx=0.02, rely=0.09,
+                             relwidth=0.96, relheight=0.83,
+                             anchor=tkinter.NW)
+    annotation_canvas.bind("<ButtonPress-1>",   on_canvas_mouse_press)
+    annotation_canvas.bind("<B1-Motion>",        on_canvas_mouse_drag)
+    annotation_canvas.bind("<ButtonRelease-1>", on_canvas_mouse_release)
 
 def place_menu():
     menu_bar = Menu(window)
@@ -275,8 +383,8 @@ VIDEO - mp4 webm mkv flv gif avi mov mpg qt 3gp"""
                                 border_spacing = 0,
                                 command        = open_files_action)
 
-    input_file_text.place(relx = 0.5, rely = 0.22,  anchor = tkinter.CENTER)
-    input_file_button.place(relx = 0.5, rely = 0.4, anchor = tkinter.CENTER)
+    input_file_text.place(relx = 0.5, rely = 0.50,  anchor = tkinter.CENTER)
+    input_file_button.place(relx = 0.5, rely = 0.65, anchor = tkinter.CENTER)
 
 def place_app_name():
     app_name_label = CTkLabel(master     = window, 
@@ -285,7 +393,7 @@ def place_app_name():
                               font       = bold19,
                               anchor     = "w")
     
-    app_name_label.place(relx = 0.82, rely = 0.975, anchor = tkinter.CENTER)
+    app_name_label.place(relx = 0.82, rely = 0.965, anchor = tkinter.CENTER)
 
 def place_github_button():
     git_button = CTkButton(master      = window, 
@@ -296,7 +404,7 @@ def place_github_button():
                             font       = bold11,
                             image      = logo_git,
                             command    = opengithub)
-    git_button.place(relx = 0.045, rely = 0.61, anchor = tkinter.CENTER)
+    git_button.place(relx = 0.045, rely = 0.965, anchor = tkinter.CENTER)
 
 def place_message_label():
     message_label = CTkLabel(master  = window, 
@@ -307,7 +415,7 @@ def place_message_label():
                             text_color   = "#000000",
                             anchor       = "center",
                             corner_radius = 25)
-    message_label.place(relx = 0.8, rely = 0.56, anchor = tkinter.CENTER)
+    message_label.place(relx = 0.5, rely = 0.965, anchor = tkinter.CENTER)
 
 def apply_windows_transparency_effect(window_root):
     window_root.wm_attributes("-transparent", transparent_color)
@@ -318,18 +426,18 @@ def apply_windows_transparency_effect(window_root):
 class App():
     def __init__(self, window):
         window.title('')
-        width        = 650
-        height       = 600
-        window.geometry("650x600")
+        width        = 900
+        height       = 700
+        window.geometry("900x700")
         window.minsize(width, height)
 
         place_menu()
         place_up_background()
+        place_toolbar()
         place_loadFile_section()
-        #place_button()
         place_app_name()
         place_github_button()
-        place_message_label
+        place_message_label()
 
         if is_Windows11(): apply_windows_transparency_effect(window)
 
