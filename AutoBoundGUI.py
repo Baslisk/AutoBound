@@ -5,6 +5,8 @@ import tkinter
 from tkinter import Tk, Frame, Menu, StringVar
 import webbrowser
 import cv2
+import ctypes
+from ctypes import wintypes
 from customtkinter import (CTk, 
                            CTkButton, 
                            CTkEntry, 
@@ -17,6 +19,20 @@ from customtkinter import (CTk,
                            set_appearance_mode,
                            set_default_color_theme)
 from PIL import Image
+
+# Windows Mica effect constants and function
+DWMWA_SYSTEMBACKDROP_TYPE = 38
+
+class MICAMODE:
+    DARK = 2  # DWMSBT_MAINWINDOW for Mica
+
+def ApplyMica(hwnd, mode):
+    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+        hwnd, 
+        DWMWA_SYSTEMBACKDROP_TYPE, 
+        ctypes.byref(ctypes.c_int(mode)), 
+        ctypes.sizeof(ctypes.c_int())
+    )
 
 app_name     = "AutoBound"
 company_name = "ADNE"
@@ -329,7 +345,7 @@ class App():
         #place_button()
         place_app_name()
         place_github_button()
-        place_message_label
+        place_message_label()
 
         if is_Windows11(): apply_windows_transparency_effect(window)
 
