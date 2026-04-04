@@ -5,6 +5,8 @@ import tkinter
 from tkinter import Tk, Frame, Menu, StringVar
 import webbrowser
 import cv2
+import ctypes
+from ctypes import wintypes
 from customtkinter import (CTk, 
                            CTkButton,
                            CTkFrame,
@@ -18,6 +20,20 @@ from customtkinter import (CTk,
                            set_appearance_mode,
                            set_default_color_theme)
 from PIL import Image, ImageTk
+
+# Windows Mica effect constants and function
+DWMWA_SYSTEMBACKDROP_TYPE = 38
+
+class MICAMODE:
+    DARK = 2  # DWMSBT_MAINWINDOW for Mica
+
+def ApplyMica(hwnd, mode):
+    ctypes.windll.dwmapi.DwmSetWindowAttribute(
+        hwnd, 
+        DWMWA_SYSTEMBACKDROP_TYPE, 
+        ctypes.byref(ctypes.c_int(mode)), 
+        ctypes.sizeof(ctypes.c_int())
+    )
 
 app_name     = "AutoBound"
 company_name = "ADNE"
