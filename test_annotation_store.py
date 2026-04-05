@@ -164,6 +164,33 @@ class TestAnnotationStore(unittest.TestCase):
         new_id = self.store.add_image("new.jpg", 50, 50)
         self.assertEqual(new_id, 1)
 
+    def test_clear_resets_annotation_counter(self):
+        img_id = self.store.add_image("img.jpg", 100, 100)
+        self.store.add_annotation(img_id, [0, 0, 10, 10])
+        self.store.add_annotation(img_id, [5, 5, 20, 20])
+        self.store.clear()
+
+        new_img_id = self.store.add_image("new.jpg", 50, 50)
+        new_ann_id = self.store.add_annotation(new_img_id, [1, 1, 5, 5])
+        self.assertEqual(new_img_id, 1)
+        self.assertEqual(new_ann_id, 1)
+
+    def test_clear_allows_full_reuse(self):
+        """After clearing, the store should behave like a fresh instance."""
+        img_id = self.store.add_image("old.jpg", 640, 480)
+        self.store.add_annotation(img_id, [10, 10, 50, 50])
+        self.store.clear()
+
+        self.assertEqual(self.store.to_coco()["images"], [])
+        self.assertEqual(self.store.to_coco()["annotations"], [])
+
+        new_id = self.store.add_image("fresh.jpg", 320, 240)
+        ann_id = self.store.add_annotation(new_id, [0, 0, 30, 30])
+        self.assertEqual(len(self.store.images), 1)
+        self.assertEqual(len(self.store.annotations), 1)
+        self.assertEqual(new_id, 1)
+        self.assertEqual(ann_id, 1)
+
     # ------------------------------------------------------------------
     # Load from file
     # ------------------------------------------------------------------

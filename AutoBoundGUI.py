@@ -70,6 +70,7 @@ bbox_canvas  = None
 bbox_photo   = None
 bbox_scale   = 1.0
 bbox_drawn_rect_ids = []
+bbox_drawn_text_ids = []
 current_image_id = None
 
 # Classes and utils -------------------
@@ -304,8 +305,15 @@ def on_bbox_mouse_release(event):
         orig_y = round(y1 * inv_scale)
         orig_w = round(w * inv_scale)
         orig_h = round(h * inv_scale)
-        annotation_store.add_annotation(current_image_id, [orig_x, orig_y, orig_w, orig_h])
+        ann_id = annotation_store.add_annotation(current_image_id, [orig_x, orig_y, orig_w, orig_h])
         bbox_drawn_rect_ids.append(bbox_rect_id)
+        # Display annotation id label at top-left corner of the bbox
+        text_id = bbox_canvas.create_text(
+            x1 + 3, y1 + 3, anchor=tkinter.NW,
+            text=str(ann_id), fill="#00FF00",
+            font=("Segoe UI", 9, "bold")
+        )
+        bbox_drawn_text_ids.append(text_id)
         count = len(annotation_store.get_annotations_for_image(current_image_id))
         info_message.set("Bounding box saved  |  Total: " + str(count))
         print("> Added bbox [" + str(orig_x) + ", " + str(orig_y) + ", " + str(orig_w) + ", " + str(orig_h) + "]")
@@ -316,16 +324,18 @@ def on_bbox_mouse_release(event):
     bbox_rect_id = None
 
 def toggle_bboxes():
-    """Show or hide all drawn bounding box rectangles on the canvas."""
+    """Show or hide all drawn bounding box rectangles and labels on the canvas."""
     if bbox_canvas is None:
         return
     state = "normal" if show_bboxes_var.get() else "hidden"
     for rect_id in bbox_drawn_rect_ids:
         bbox_canvas.itemconfigure(rect_id, state=state)
+    for text_id in bbox_drawn_text_ids:
+        bbox_canvas.itemconfigure(text_id, state=state)
 
 def draw_bboxes_from_store():
     """Draw all bounding boxes for the current image from the annotation store."""
-    global bbox_drawn_rect_ids
+    global bbox_drawn_rect_ids, bbox_drawn_text_ids
     if bbox_canvas is None or current_image_id is None:
         return
 
@@ -342,6 +352,13 @@ def draw_bboxes_from_store():
             outline="#00FF00", width=2
         )
         bbox_drawn_rect_ids.append(rect_id)
+        # Display annotation id label at top-left corner of the bbox
+        text_id = bbox_canvas.create_text(
+            cx + 3, cy + 3, anchor=tkinter.NW,
+            text=str(ann["id"]), fill="#00FF00",
+            font=("Segoe UI", 9, "bold")
+        )
+        bbox_drawn_text_ids.append(text_id)
 
 def show_save_discard_cancel_popup(on_save, on_discard, on_cancel):
     """Show a popup asking the user to save, discard or cancel.
@@ -381,14 +398,39 @@ def show_save_discard_cancel_popup(on_save, on_discard, on_cancel):
     tkinter.Button(btn_frame, text="Discard", width=10, command=_discard).pack(side=tkinter.LEFT, padx=5)
     tkinter.Button(btn_frame, text="Cancel", width=10, command=_cancel).pack(side=tkinter.LEFT, padx=5)
 
+def clear_bboxes_action():
+    """Clear all bounding boxes from memory and from the canvas."""
+    global bbox_drawn_rect_ids, bbox_drawn_text_ids
+    annotation_store.clear()
+
+    if bbox_canvas is not None:
+        for rect_id in bbox_drawn_rect_ids:
+            bbox_canvas.delete(rect_id)
+        for text_id in bbox_drawn_text_ids:
+            bbox_canvas.delete(text_id)
+
+    bbox_drawn_rect_ids = []
+    bbox_drawn_text_ids = []
+    info_message.set("All bounding boxes cleared")
+
 def _do_load_bbox():
     """Open a file dialog, load COCO annotations, and draw bounding boxes."""
+    global bbox_drawn_rect_ids, bbox_drawn_text_ids
     filepath = filedialog.askopenfilename(
         filetypes=[("COCO JSON", "*.json")],
         title="Load Bounding Boxes (COCO format)",
     )
     if not filepath:
         return
+
+    # Clear existing bounding boxes from canvas before loading new ones
+    if bbox_canvas is not None:
+        for rect_id in bbox_drawn_rect_ids:
+            bbox_canvas.delete(rect_id)
+        for text_id in bbox_drawn_text_ids:
+            bbox_canvas.delete(text_id)
+    bbox_drawn_rect_ids = []
+    bbox_drawn_text_ids = []
 
     try:
         annotation_store.load_from_file(filepath)
@@ -435,7 +477,7 @@ def load_bbox_action():
 
 def show_frame_with_canvas(video_file):
     """Display the first frame of a video on a canvas for bounding box annotation."""
-    global bbox_canvas, bbox_photo, current_image_id, bbox_drawn_rect_ids
+    global bbox_canvas, bbox_photo, current_image_id, bbox_drawn_rect_ids, bbox_drawn_text_ids
 
     cap = cv2.VideoCapture(video_file)
     width  = round(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -470,8 +512,9 @@ def show_frame_with_canvas(video_file):
 
     place_up_background()
 
-    # Reset tracked rectangle IDs since canvas is recreated
+    # Reset tracked rectangle and text IDs since canvas is recreated
     bbox_drawn_rect_ids = []
+    bbox_drawn_text_ids = []
 
     bbox_canvas = Canvas(window, width=display_w, height=display_h,
                          bg="#080808", highlightthickness=0)
@@ -493,6 +536,7 @@ def place_menu():
     m1.add_command(label="Save File",command=save_file)
     m1.add_command(label="Save Annotations",command=save_annotations_action)
     m1.add_command(label="Load BBox",command=load_bbox_action)
+    m1.add_command(label="Clear BBox",command=clear_bboxes_action)
     m1.add_separator()
     m1.add_command(label="Exit",command=exit_app)
     menu_bar.add_cascade(label="File",menu=m1)
@@ -599,6 +643,19 @@ def place_load_bbox_button():
                          command = load_bbox_action)
     load_btn.place(relx = 0.15, rely = 0.6, anchor = tkinter.CENTER)
 
+def place_clear_bbox_button():
+    clear_btn = CTkButton(master  = window,
+                          width   = 140,
+                          height  = 30,
+                          text    = "CLEAR BBOX",
+                          font    = bold11,
+                          fg_color   = "#dc3545",
+                          text_color = "#FFFFFF",
+                          border_spacing = 0,
+                          corner_radius  = 25,
+                          command = clear_bboxes_action)
+    clear_btn.place(relx = 0.85, rely = 0.6, anchor = tkinter.CENTER)
+
 def place_bbox_toggle_checkbox():
     bbox_toggle = CTkCheckBox(master   = window,
                               text     = "Show Bounding Boxes",
@@ -639,6 +696,7 @@ class App():
         place_app_name()
         place_github_button()
         place_load_bbox_button()
+        place_clear_bbox_button()
         place_message_label()
 
         if is_Windows11(): apply_windows_transparency_effect(window)
