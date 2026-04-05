@@ -9,6 +9,7 @@ import ctypes
 from ctypes import wintypes
 from customtkinter import (CTk, 
                            CTkButton, 
+                           CTkCheckBox,
                            CTkEntry, 
                            CTkFont, 
                            CTkImage,
@@ -68,6 +69,7 @@ bbox_rect_id = None
 bbox_canvas  = None
 bbox_photo   = None
 bbox_scale   = 1.0
+bbox_drawn_rect_ids = []
 current_image_id = None
 
 # Classes and utils -------------------
@@ -258,6 +260,7 @@ def open_files_action():
         # Open the first video on the annotation canvas automatically
         show_frame_with_canvas(supported_files_list[0])
         place_save_annotations_button()
+        place_bbox_toggle_checkbox()
 
     else: 
         info_message.set("Not supported files :(")
@@ -302,6 +305,7 @@ def on_bbox_mouse_release(event):
         orig_w = round(w * inv_scale)
         orig_h = round(h * inv_scale)
         annotation_store.add_annotation(current_image_id, [orig_x, orig_y, orig_w, orig_h])
+        bbox_drawn_rect_ids.append(bbox_rect_id)
         count = len(annotation_store.get_annotations_for_image(current_image_id))
         info_message.set("Bounding box saved  |  Total: " + str(count))
         print("> Added bbox [" + str(orig_x) + ", " + str(orig_y) + ", " + str(orig_w) + ", " + str(orig_h) + "]")
@@ -311,9 +315,17 @@ def on_bbox_mouse_release(event):
 
     bbox_rect_id = None
 
+def toggle_bboxes():
+    """Show or hide all drawn bounding box rectangles on the canvas."""
+    if bbox_canvas is None:
+        return
+    state = "normal" if show_bboxes_var.get() else "hidden"
+    for rect_id in bbox_drawn_rect_ids:
+        bbox_canvas.itemconfigure(rect_id, state=state)
+
 def show_frame_with_canvas(video_file):
     """Display the first frame of a video on a canvas for bounding box annotation."""
-    global bbox_canvas, bbox_photo, current_image_id
+    global bbox_canvas, bbox_photo, current_image_id, bbox_drawn_rect_ids
 
     cap = cv2.VideoCapture(video_file)
     width  = round(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -347,6 +359,9 @@ def show_frame_with_canvas(video_file):
     bbox_photo = ImageTk.PhotoImage(pil_image)
 
     place_up_background()
+
+    # Reset tracked rectangle IDs since canvas is recreated
+    bbox_drawn_rect_ids = []
 
     bbox_canvas = Canvas(window, width=display_w, height=display_h,
                          bg="#080808", highlightthickness=0)
@@ -460,6 +475,14 @@ def place_save_annotations_button():
                          command = save_annotations_action)
     save_btn.place(relx = 0.5, rely = 0.6, anchor = tkinter.CENTER)
 
+def place_bbox_toggle_checkbox():
+    bbox_toggle = CTkCheckBox(master   = window,
+                              text     = "Show Bounding Boxes",
+                              font     = bold11,
+                              variable = show_bboxes_var,
+                              command  = toggle_bboxes)
+    bbox_toggle.place(relx = 0.5, rely = 0.65, anchor = tkinter.CENTER)
+
 def place_message_label():
     message_label = CTkLabel(master  = window, 
                             textvariable = info_message,
@@ -505,6 +528,8 @@ if __name__ == "__main__":
 
     info_message = StringVar()
     info_message.set("Hi :)")
+
+    show_bboxes_var = tkinter.BooleanVar(value=True)
 
     bold8  = CTkFont(family = "Segoe UI", size = 8, weight = "bold")
     bold9  = CTkFont(family = "Segoe UI", size = 9, weight = "bold")
