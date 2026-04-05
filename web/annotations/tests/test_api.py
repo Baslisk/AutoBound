@@ -211,6 +211,60 @@ class ExportImportCOCOTest(TestCase):
         )
         self.assertEqual(resp.status_code, 400)
 
+    def test_export_includes_video_metadata(self):
+        """Export should include frame_count and fps in images data."""
+        self.video.frame_count = 500
+        self.video.fps = 24.0
+        self.video.save()
+        resp = self.client.get(f"/api/export/{self.video.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        img = resp.json()["images"][0]
+        self.assertEqual(img["frame_count"], 500)
+        self.assertEqual(img["fps"], 24.0)
+
+    def test_import_updates_video_metadata(self):
+        """Import with video_id should update video metadata from COCO data."""
+        coco = {
+            "images": [{"id": 1, "file_name": "x.mp4", "width": 1920, "height": 1080,
+                         "frame_count": 900, "fps": 29.97}],
+            "annotations": [],
+        }
+        resp = self.client.post(
+            f"/api/import/?video_id={self.video.pk}",
+            data=json.dumps(coco),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.video.refresh_from_db()
+        self.assertEqual(self.video.width, 1920)
+        self.assertEqual(self.video.height, 1080)
+        self.assertEqual(self.video.frame_count, 900)
+        self.assertAlmostEqual(self.video.fps, 29.97)
+
+    def test_metadata_round_trip(self):
+        """Export then import should preserve video metadata."""
+        self.video.frame_count = 300
+        self.video.fps = 60.0
+        self.video.save()
+
+        # Export
+        resp = self.client.get(f"/api/export/{self.video.pk}/")
+        coco = resp.json()
+
+        # Import back (as a new video without video_id to test metadata preservation)
+        # Delete the original video annotations first
+        Annotation.objects.filter(image=self.video).delete()
+
+        resp = self.client.post(
+            f"/api/import/?video_id={self.video.pk}",
+            data=json.dumps(coco),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.video.refresh_from_db()
+        self.assertEqual(self.video.frame_count, 300)
+        self.assertEqual(self.video.fps, 60.0)
+
 
 class FrameAPITest(TestCase):
     def setUp(self):

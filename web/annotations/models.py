@@ -37,6 +37,8 @@ class VideoFile(models.Model):
             "file_name": self.file_name,
             "width": self.width,
             "height": self.height,
+            "frame_count": self.frame_count,
+            "fps": self.fps,
         }
 
 

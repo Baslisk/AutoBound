@@ -84,6 +84,15 @@ def import_coco(request):
     for img_data in data.get("images", []):
         if target_video is not None:
             image_id_map[img_data["id"]] = target_video
+            # Update video metadata from COCO data if present
+            updated = False
+            for field in ("width", "height", "frame_count", "fps"):
+                val = img_data.get(field)
+                if val is not None and val != getattr(target_video, field):
+                    setattr(target_video, field, val)
+                    updated = True
+            if updated:
+                target_video.save()
         else:
             video, _ = VideoFile.objects.get_or_create(
                 file_name=img_data["file_name"],

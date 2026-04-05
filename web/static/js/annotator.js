@@ -20,6 +20,9 @@
   const currentTimeEl = document.getElementById("currentTime");
   const remainingTimeEl = document.getElementById("remainingTime");
   const fpsSelect = document.getElementById("fpsSelect");
+  const annPanel = document.getElementById("annPanel");
+  const annList = document.getElementById("annList");
+  const annPanelCount = document.getElementById("annPanelCount");
 
   let img = new Image();
   let scale = 1;
@@ -33,6 +36,8 @@
   let currentFrame = 0;
   let totalFrames = FRAME_COUNT || 0;
   let loadingFrame = false;
+  let allAnnotations = [];  // all annotations for this video (panel data)
+  let highlightId = null;   // annotation id to flash-highlight on canvas
 
   /* ---------- playback state ---------- */
   var fps = (typeof FPS !== "undefined" && FPS > 0) ? FPS : 30;
@@ -131,17 +136,29 @@
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
     if (showBboxes.checked) {
-      ctx.strokeStyle = "#00FF00";
-      ctx.lineWidth = 2;
-      ctx.font = "bold 12px Segoe UI";
-      ctx.fillStyle = "#00FF00";
-
       for (const b of bboxes) {
         const cx = toCanvas(b.x);
         const cy = toCanvas(b.y);
         const cw = toCanvas(b.w);
         const ch = toCanvas(b.h);
+
+        if (highlightId !== null && b.id === highlightId) {
+          ctx.strokeStyle = "#FFD700";
+          ctx.lineWidth = 3;
+          ctx.shadowColor = "#FFD700";
+          ctx.shadowBlur = 8;
+        } else {
+          ctx.strokeStyle = "#00FF00";
+          ctx.lineWidth = 2;
+          ctx.shadowColor = "transparent";
+          ctx.shadowBlur = 0;
+        }
         ctx.strokeRect(cx, cy, cw, ch);
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+
+        ctx.font = "bold 12px Segoe UI";
+        ctx.fillStyle = (highlightId !== null && b.id === highlightId) ? "#FFD700" : "#00FF00";
         ctx.fillText(String(b.id), cx + 3, cy + 14);
       }
     }
@@ -170,6 +187,7 @@
         }
         updateCount();
         draw();
+        renderAnnotationPanel(); // sync active frame highlight
       })
       .catch(function () { setStatus("Error loading annotations"); });
   }
@@ -345,6 +363,100 @@
     });
   }
 
+  /* ---------- annotations panel ---------- */
+
+  function loadAllAnnotations(cb) {
+    fetch("/api/annotations/?image_id=" + VIDEO_ID, { headers: headers() })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        allAnnotations = data;
+        renderAnnotationPanel();
+        if (cb) cb();
+      })
+      .catch(function () { /* silent */ });
+  }
+
+  function renderAnnotationPanel() {
+    if (!annList) return;
+    var frag = document.createDocumentFragment();
+
+    // Group by frame_number
+    var groups = {};
+    for (var i = 0; i < allAnnotations.length; i++) {
+      var a = allAnnotations[i];
+      var fn = a.frame_number || 0;
+      if (!groups[fn]) groups[fn] = [];
+      groups[fn].push(a);
+    }
+
+    var frameNums = Object.keys(groups).map(Number).sort(function (a, b) { return a - b; });
+
+    for (var fi = 0; fi < frameNums.length; fi++) {
+      var frameNum = frameNums[fi];
+      var anns = groups[frameNum];
+
+      var groupEl = document.createElement("li");
+      groupEl.className = "ann-frame-group";
+
+      var header = document.createElement("div");
+      header.className = "ann-frame-header" + (frameNum === currentFrame ? " active" : "");
+      header.textContent = "Frame " + (frameNum + 1) + " (" + anns.length + ")";
+      groupEl.appendChild(header);
+
+      for (var ai = 0; ai < anns.length; ai++) {
+        var ann = anns[ai];
+        var item = document.createElement("div");
+        item.className = "ann-item" + (frameNum === currentFrame && highlightId === ann.id ? " active" : "");
+        item.setAttribute("data-ann-id", ann.id);
+        item.setAttribute("data-frame", frameNum);
+
+        var idSpan = document.createElement("span");
+        idSpan.className = "ann-item-id";
+        idSpan.textContent = "#" + ann.id;
+
+        var bboxSpan = document.createElement("span");
+        bboxSpan.className = "ann-item-bbox";
+        var bbox = [Math.round(ann.bbox_x), Math.round(ann.bbox_y), Math.round(ann.bbox_w), Math.round(ann.bbox_h)];
+        bboxSpan.textContent = bbox.join(", ");
+
+        item.appendChild(idSpan);
+        item.appendChild(bboxSpan);
+
+        (function (annId, fn) {
+          item.addEventListener("click", function () {
+            highlightId = annId;
+            if (fn !== currentFrame) {
+              goToFrame(fn);
+              // After frame loads, draw will pick up the highlightId
+            } else {
+              draw();
+            }
+            renderAnnotationPanel();
+            // Clear highlight after a short delay
+            setTimeout(function () {
+              if (highlightId === annId) {
+                highlightId = null;
+                draw();
+                renderAnnotationPanel();
+              }
+            }, 1500);
+          });
+        })(ann.id, frameNum);
+
+        groupEl.appendChild(item);
+      }
+
+      frag.appendChild(groupEl);
+    }
+
+    annList.innerHTML = "";
+    annList.appendChild(frag);
+
+    if (annPanelCount) {
+      annPanelCount.textContent = allAnnotations.length;
+    }
+  }
+
   /* ---------- mouse events ---------- */
 
   canvas.addEventListener("mousedown", function (e) {
@@ -397,6 +509,7 @@
         updateCount();
         setStatus("Bounding box saved");
         draw();
+        loadAllAnnotations();
       })
       .catch(() => setStatus("Error saving bbox"));
   });
@@ -456,8 +569,7 @@
       bboxes = [];
       updateCount();
       setStatus("All annotations cleared for this frame");
-      draw();
-    }).catch(() => setStatus("Error clearing annotations"));
+      draw();      loadAllAnnotations();    }).catch(() => setStatus("Error clearing annotations"));
   });
 
   importInput.addEventListener("change", function () {
@@ -474,6 +586,7 @@
         .then(data => {
           setStatus("Imported " + data.imported + " annotations");
           loadAnnotationsForFrame(currentFrame);
+          loadAllAnnotations();
         })
         .catch(() => setStatus("Import failed"));
     };
@@ -553,6 +666,7 @@
       updateCount();
       draw();
       setStatus("Ready — draw bounding boxes on the frame");
+      loadAllAnnotations();
     };
     img.src = FRAME_URL;
   }
