@@ -412,15 +412,40 @@
   exportBtn.addEventListener("click", function () {
     fetch("/api/export/" + VIDEO_ID + "/", { headers: headers() })
       .then(r => r.json())
-      .then(data => {
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = "annotations_" + VIDEO_ID + ".json";
-        a.click();
-        setStatus("Exported COCO JSON");
+      .then(function (data) {
+        var jsonStr = JSON.stringify(data, null, 2);
+        var defaultName = "annotations_" + VIDEO_ID + ".json";
+
+        if (typeof window.showSaveFilePicker === "function") {
+          window.showSaveFilePicker({
+            suggestedName: defaultName,
+            types: [{
+              description: "COCO JSON",
+              accept: { "application/json": [".json"] },
+            }],
+          }).then(function (handle) {
+            return handle.createWritable().then(function (writable) {
+              return writable.write(jsonStr).then(function () {
+                return writable.close();
+              });
+            });
+          }).then(function () {
+            setStatus("Exported COCO JSON");
+          }).catch(function (err) {
+            if (err.name !== "AbortError") setStatus("Export failed");
+          });
+        } else {
+          // Fallback for browsers without File System Access API
+          var blob = new Blob([jsonStr], { type: "application/json" });
+          var a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = defaultName;
+          a.click();
+          URL.revokeObjectURL(a.href);
+          setStatus("Exported COCO JSON");
+        }
       })
-      .catch(() => setStatus("Export failed"));
+      .catch(function () { setStatus("Export failed"); });
   });
 
   clearBtn.addEventListener("click", function () {
