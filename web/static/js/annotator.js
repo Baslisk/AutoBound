@@ -12,15 +12,23 @@
   const exportBtn = document.getElementById("exportBtn");
   const clearBtn = document.getElementById("clearBtn");
   const importInput = document.getElementById("importInput");
+  const prevFrameBtn = document.getElementById("prevFrameBtn");
+  const nextFrameBtn = document.getElementById("nextFrameBtn");
+  const frameSlider = document.getElementById("frameSlider");
+  const frameIndicator = document.getElementById("frameIndicator");
 
   let img = new Image();
   let scale = 1;
-  let bboxes = []; // {id, x, y, w, h} in original coords
+  let bboxes = []; // {id, x, y, w, h} in original coords for current frame
   let drawing = false;
   let startX = 0;
   let startY = 0;
   let currentX = 0;
   let currentY = 0;
+
+  let currentFrame = 0;
+  let totalFrames = FRAME_COUNT || 0;
+  let loadingFrame = false;
 
   /* ---------- helpers ---------- */
 
@@ -32,6 +40,15 @@
 
   function headers(extra) {
     return Object.assign({ "X-CSRFToken": CSRF_TOKEN, "Content-Type": "application/json" }, extra || {});
+  }
+
+  function updateFrameUI() {
+    var display = totalFrames > 0 ? (currentFrame + 1) + " / " + totalFrames : "0 / 0";
+    frameIndicator.textContent = "Frame " + display;
+    frameSlider.value = currentFrame;
+
+    prevFrameBtn.disabled = currentFrame <= 0;
+    nextFrameBtn.disabled = totalFrames <= 0 || currentFrame >= totalFrames - 1;
   }
 
   /* ---------- drawing ---------- */
@@ -63,6 +80,75 @@
       ctx.strokeRect(startX, startY, currentX - startX, currentY - startY);
       ctx.setLineDash([]);
     }
+  }
+
+  /* ---------- frame loading ---------- */
+
+  function loadAnnotationsForFrame(frameNum) {
+    fetch("/api/annotations/?image_id=" + VIDEO_ID + "&frame_number=" + frameNum, {
+      headers: headers(),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        bboxes = [];
+        for (var i = 0; i < data.length; i++) {
+          var a = data[i];
+          bboxes.push({ id: a.id, x: a.bbox_x, y: a.bbox_y, w: a.bbox_w, h: a.bbox_h });
+        }
+        updateCount();
+        draw();
+      })
+      .catch(function () { setStatus("Error loading annotations"); });
+  }
+
+  function goToFrame(frameNum) {
+    if (loadingFrame) return;
+    if (frameNum < 0 || frameNum >= totalFrames) return;
+    if (frameNum === currentFrame && img.complete && img.src) {
+      return;
+    }
+
+    loadingFrame = true;
+    setStatus("Loading frame " + (frameNum + 1) + "…");
+
+    fetch("/api/frame/" + VIDEO_ID + "/" + frameNum + "/", {
+      headers: headers(),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.frame) {
+          var newImg = new Image();
+          newImg.onload = function () {
+            img = newImg;
+            currentFrame = frameNum;
+            loadingFrame = false;
+
+            var area = canvas.parentElement;
+            var maxW = area.clientWidth - 2;
+            var maxH = area.clientHeight - 2;
+            scale = Math.min(maxW / IMG_WIDTH, maxH / IMG_HEIGHT, 1);
+            canvas.width = Math.round(IMG_WIDTH * scale);
+            canvas.height = Math.round(IMG_HEIGHT * scale);
+
+            updateFrameUI();
+            loadAnnotationsForFrame(frameNum);
+            setStatus("Frame " + (frameNum + 1) + " of " + totalFrames);
+          };
+          newImg.src = "data:image/jpeg;base64," + data.frame;
+
+          if (data.total_frames && data.total_frames > 0) {
+            totalFrames = data.total_frames;
+            frameSlider.max = totalFrames - 1;
+          }
+        } else {
+          loadingFrame = false;
+          setStatus("Error loading frame");
+        }
+      })
+      .catch(function () {
+        loadingFrame = false;
+        setStatus("Error loading frame");
+      });
   }
 
   /* ---------- mouse events ---------- */
@@ -108,7 +194,7 @@
     fetch("/api/annotations/", {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ image: VIDEO_ID, category: 1, bbox_x: ox, bbox_y: oy, bbox_w: ow, bbox_h: oh }),
+      body: JSON.stringify({ image: VIDEO_ID, category: 1, bbox_x: ox, bbox_y: oy, bbox_w: ow, bbox_h: oh, frame_number: currentFrame }),
     })
       .then(r => r.json())
       .then(data => {
@@ -143,13 +229,13 @@
   });
 
   clearBtn.addEventListener("click", function () {
-    if (!confirm("Delete all annotations for this video?")) return;
+    if (!confirm("Delete all annotations for this frame?")) return;
     Promise.all(bboxes.map(b =>
       fetch("/api/annotations/" + b.id + "/", { method: "DELETE", headers: headers() })
     )).then(() => {
       bboxes = [];
       updateCount();
-      setStatus("All annotations cleared");
+      setStatus("All annotations cleared for this frame");
       draw();
     }).catch(() => setStatus("Error clearing annotations"));
   });
@@ -175,9 +261,43 @@
     importInput.value = "";
   });
 
+  /* ---------- frame navigation ---------- */
+
+  prevFrameBtn.addEventListener("click", function () {
+    if (currentFrame > 0) goToFrame(currentFrame - 1);
+  });
+
+  nextFrameBtn.addEventListener("click", function () {
+    if (currentFrame < totalFrames - 1) goToFrame(currentFrame + 1);
+  });
+
+  frameSlider.addEventListener("input", function () {
+    var target = parseInt(frameSlider.value, 10);
+    if (!isNaN(target) && target !== currentFrame) {
+      goToFrame(target);
+    }
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      if (currentFrame > 0) goToFrame(currentFrame - 1);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      if (currentFrame < totalFrames - 1) goToFrame(currentFrame + 1);
+    }
+  });
+
   /* ---------- init ---------- */
 
   function init() {
+    // Set up slider
+    if (totalFrames > 0) {
+      frameSlider.max = totalFrames - 1;
+    }
+    updateFrameUI();
+
     img.onload = function () {
       const area = canvas.parentElement;
       const maxW = area.clientWidth - 2;
@@ -186,7 +306,7 @@
       canvas.width = Math.round(IMG_WIDTH * scale);
       canvas.height = Math.round(IMG_HEIGHT * scale);
 
-      // Load initial annotations
+      // Load initial annotations (frame 0)
       for (const a of INITIAL_ANNOTATIONS) {
         bboxes.push({ id: a.id, x: a.bbox[0], y: a.bbox[1], w: a.bbox[2], h: a.bbox[3] });
       }

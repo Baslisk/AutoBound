@@ -1,5 +1,8 @@
+import base64
 import json
+import tempfile
 
+import cv2
 from django.http import JsonResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, permission_classes
@@ -18,6 +21,9 @@ class AnnotationViewSet(viewsets.ModelViewSet):
         image_id = self.request.query_params.get("image_id")
         if image_id is not None:
             qs = qs.filter(image_id=image_id)
+        frame_number = self.request.query_params.get("frame_number")
+        if frame_number is not None:
+            qs = qs.filter(frame_number=frame_number)
         return qs
 
     def perform_create(self, serializer):
@@ -82,3 +88,38 @@ def import_coco(request):
         count += 1
 
     return Response({"imported": count}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_frame(request, video_id, frame_number):
+    """Extract and return a specific frame from a video as a base64 JPEG."""
+    try:
+        video = VideoFile.objects.get(pk=video_id, uploaded_by=request.user)
+    except VideoFile.DoesNotExist:
+        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if not video.file:
+        return Response({"detail": "No video file."}, status=status.HTTP_404_NOT_FOUND)
+
+    cap = cv2.VideoCapture(video.file.path)
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if frame_number < 0 or frame_number >= total:
+        cap.release()
+        return Response({"detail": "Frame out of range."}, status=status.HTTP_400_BAD_REQUEST)
+
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+    ret, frame = cap.read()
+    cap.release()
+
+    if not ret:
+        return Response({"detail": "Could not read frame."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    _, buffer = cv2.imencode(".jpg", frame)
+    frame_b64 = base64.b64encode(buffer).decode("utf-8")
+
+    return Response({
+        "frame": frame_b64,
+        "frame_number": frame_number,
+        "total_frames": total,
+    })

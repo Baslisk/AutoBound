@@ -55,6 +55,37 @@ class AnnotationAPITest(TestCase):
         resp = self.client.get("/api/annotations/?image_id=9999")
         self.assertEqual(len(resp.data), 0)
 
+    def test_filter_by_frame_number(self):
+        Annotation.objects.create(
+            image=self.video, category=self.cat,
+            bbox_x=0, bbox_y=0, bbox_w=10, bbox_h=10,
+            frame_number=0, created_by=self.user,
+        )
+        Annotation.objects.create(
+            image=self.video, category=self.cat,
+            bbox_x=5, bbox_y=5, bbox_w=15, bbox_h=15,
+            frame_number=5, created_by=self.user,
+        )
+        resp = self.client.get(f"/api/annotations/?image_id={self.video.pk}&frame_number=0")
+        self.assertEqual(len(resp.data), 1)
+        self.assertEqual(resp.data[0]["frame_number"], 0)
+        resp = self.client.get(f"/api/annotations/?image_id={self.video.pk}&frame_number=5")
+        self.assertEqual(len(resp.data), 1)
+        self.assertEqual(resp.data[0]["frame_number"], 5)
+        resp = self.client.get(f"/api/annotations/?image_id={self.video.pk}&frame_number=99")
+        self.assertEqual(len(resp.data), 0)
+
+    def test_create_annotation_with_frame_number(self):
+        resp = self.client.post("/api/annotations/", {
+            "image": self.video.pk,
+            "category": self.cat.pk,
+            "bbox_x": 5, "bbox_y": 10, "bbox_w": 50, "bbox_h": 30,
+            "frame_number": 7,
+        })
+        self.assertEqual(resp.status_code, 201)
+        ann = Annotation.objects.get(pk=resp.data["id"])
+        self.assertEqual(ann.frame_number, 7)
+
     def test_delete_annotation(self):
         ann = Annotation.objects.create(
             image=self.video, category=self.cat,
@@ -124,3 +155,28 @@ class ExportImportCOCOTest(TestCase):
             content_type="application/json",
         )
         self.assertEqual(resp.status_code, 400)
+
+
+class FrameAPITest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("tester", password="pass1234")
+        self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        self.video = VideoFile.objects.create(
+            file_name="clip.mp4", width=800, height=600,
+            frame_count=100, uploaded_by=self.user,
+        )
+        self.client = APIClient()
+        self.client.login(username="tester", password="pass1234")
+
+    def test_get_frame_no_video_file(self):
+        resp = self.client.get(f"/api/frame/{self.video.pk}/0/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_get_frame_not_found(self):
+        resp = self.client.get("/api/frame/9999/0/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_get_frame_unauthenticated(self):
+        self.client.logout()
+        resp = self.client.get(f"/api/frame/{self.video.pk}/0/")
+        self.assertIn(resp.status_code, [401, 403])

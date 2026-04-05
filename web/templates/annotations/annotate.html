@@ -32,8 +32,19 @@
     <div id="bboxCount" class="bbox-count">0 annotations</div>
   </aside>
 
-  <div class="canvas-area">
-    <canvas id="annotationCanvas"></canvas>
+  <div class="canvas-wrapper">
+    <div class="canvas-area">
+      <canvas id="annotationCanvas"></canvas>
+    </div>
+
+    <div class="frame-nav">
+      <button class="btn btn-sm" id="prevFrameBtn" title="Previous frame (←)">◀ Prev</button>
+      <span id="frameIndicator" class="frame-indicator">Frame 0 / 0</span>
+      <button class="btn btn-sm" id="nextFrameBtn" title="Next frame (→)">Next ▶</button>
+    </div>
+    <div class="frame-slider-container">
+      <input type="range" id="frameSlider" class="frame-slider" min="0" max="0" value="0" step="1">
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -46,6 +57,7 @@
   const CSRF_TOKEN = "{{ csrf_token }}";
   const IMG_WIDTH = {{ video.width }};
   const IMG_HEIGHT = {{ video.height }};
+  const FRAME_COUNT = {{ frame_count }};
 </script>
 <script src="{% static 'js/annotator.js' %}"></script>
 {% endblock %}
