@@ -9,6 +9,7 @@ import ctypes
 from ctypes import wintypes
 from customtkinter import (CTk, 
                            CTkButton,
+                           CTkCheckBox,
                            CTkFrame,
                            CTkEntry, 
                            CTkFont, 
@@ -53,7 +54,9 @@ current_rect_id   = None
 bboxes            = []
 annotation_canvas = None
 canvas_photo      = None
-bbox_button       = None
+bbox_checkbox     = None
+toolbar_bg        = None
+bbox_var          = None
 
 MIN_BBOX_SIZE = 2  # minimum pixel width/height for a valid bounding box
 
@@ -226,6 +229,7 @@ def open_files_action():
             place_annotation_canvas()
             window.update_idletasks()
             show_pil_image_on_canvas(pil_image)
+            ensure_toolbar_visible()
 
         info_message.set("Ready — " + str(supported_files_counter) + " file(s) loaded")
 
@@ -234,17 +238,22 @@ def open_files_action():
 
 def toggle_bbox_tool():
     global bbox_tool_active
-    bbox_tool_active = not bbox_tool_active
-    if bbox_button is None:
-        return
-    if bbox_tool_active:
-        bbox_button.configure(fg_color="#6040D0", text="⬜ Bounding Box  ✓")
-        if annotation_canvas is not None:
-            annotation_canvas.configure(cursor="crosshair")
+    if bbox_var is not None:
+        bbox_tool_active = bool(bbox_var.get())
     else:
-        bbox_button.configure(fg_color="#3a3a3a", text="⬜ Bounding Box")
-        if annotation_canvas is not None:
+        bbox_tool_active = not bbox_tool_active
+
+    if annotation_canvas is not None:
+        if bbox_tool_active:
+            annotation_canvas.configure(cursor="crosshair")
+        else:
             annotation_canvas.configure(cursor="")
+
+def ensure_toolbar_visible():
+    if toolbar_bg is not None:
+        toolbar_bg.lift()
+    if bbox_checkbox is not None:
+        bbox_checkbox.lift()
 
 def on_canvas_mouse_press(event):
     global bbox_start_x, bbox_start_y, current_rect_id
@@ -303,22 +312,26 @@ def show_pil_image_on_canvas(pil_image):
 # UI Elements -------------------------
 
 def place_toolbar():
-    global bbox_button
+    global bbox_checkbox, toolbar_bg, bbox_var
     toolbar_bg = CTkLabel(master     = window,
                           text       = "",
                           fg_color   = "#1e1e1e",
                           corner_radius = 0)
     toolbar_bg.place(relx=0.0, rely=0.0, relwidth=1.0, relheight=0.075, anchor=tkinter.NW)
 
-    bbox_button = CTkButton(master       = window,
-                            width        = 155,
-                            height       = 33,
-                            text         = "⬜ Bounding Box",
-                            font         = bold11,
-                            fg_color     = "#3a3a3a",
-                            hover_color  = "#4a4a4a",
-                            command      = toggle_bbox_tool)
-    bbox_button.place(relx=0.01, rely=0.0375, anchor=tkinter.W)
+    bbox_var = tkinter.IntVar(value=0)
+    bbox_checkbox = CTkCheckBox(master            = window,
+                                text              = "Bounding Box",
+                                font              = bold11,
+                                variable          = bbox_var,
+                                command           = toggle_bbox_tool,
+                                fg_color          = "#6040D0",
+                                hover_color       = "#6F53DB",
+                                checkmark_color   = "#FFFFFF",
+                                text_color        = "#EAEAEA",
+                                corner_radius     = 8)
+    bbox_checkbox.place(relx=0.015, rely=0.0375, anchor=tkinter.W)
+    ensure_toolbar_visible()
 
 def place_annotation_canvas():
     global annotation_canvas
