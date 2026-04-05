@@ -415,13 +415,22 @@ def clear_bboxes_action():
 
 def _do_load_bbox():
     """Open a file dialog, load COCO annotations, and draw bounding boxes."""
-    global bbox_drawn_rect_ids, bbox_drawn_text_ids
+    global bbox_drawn_rect_ids, bbox_drawn_text_ids, current_image_id
     filepath = filedialog.askopenfilename(
         filetypes=[("COCO JSON", "*.json")],
         title="Load Bounding Boxes (COCO format)",
     )
     if not filepath:
         return
+
+    # Remember the file name of the video currently displayed on the canvas
+    # so we can re-associate it with the loaded data afterwards.
+    current_video_name = None
+    if current_image_id is not None:
+        for img in annotation_store.images:
+            if img["id"] == current_image_id:
+                current_video_name = img["file_name"]
+                break
 
     # Clear existing bounding boxes from canvas before loading new ones
     if bbox_canvas is not None:
@@ -454,8 +463,14 @@ def _do_load_bbox():
             draw_bboxes_from_store()
             place_save_annotations_button()
             place_bbox_toggle_checkbox()
-        elif bbox_canvas is not None and current_image_id is not None:
-            # Canvas already showing a frame – just draw boxes for matching image
+        elif bbox_canvas is not None and current_video_name is not None:
+            # Canvas already showing a frame – update current_image_id from
+            # the loaded data so draw_bboxes_from_store finds the right
+            # annotations, then draw them.
+            matched = [img for img in annotation_store.images
+                       if img["file_name"] == current_video_name]
+            if matched:
+                current_image_id = matched[0]["id"]
             draw_bboxes_from_store()
         else:
             info_message.set("Loaded " + str(len(annotation_store.annotations)) + " annotations (no matching video found)")
@@ -466,7 +481,7 @@ def load_bbox_action():
     If there are existing annotations the user is asked whether to save, discard
     or cancel before the new file is loaded.
     """
-    if len(annotation_store.annotations) > 0:
+    if annotation_store.has_unsaved_annotations():
         show_save_discard_cancel_popup(
             on_save=lambda: (save_annotations_action(), _do_load_bbox()),
             on_discard=lambda: (annotation_store.clear(), _do_load_bbox()),

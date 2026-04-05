@@ -55,6 +55,7 @@ class AnnotationStore:
             "bbox": [x, y, w, h],
             "area": w * h,
             "iscrowd": 0,
+            "saved": False,
         })
         return annotation_id
 
@@ -68,11 +69,25 @@ class AnnotationStore:
         """Return all annotations belonging to a given image."""
         return [a for a in self.annotations if a["image_id"] == image_id]
 
+    def has_unsaved_annotations(self):
+        """Return True if any annotation has not been saved to a file."""
+        return any(not a.get("saved", False) for a in self.annotations)
+
+    def mark_all_saved(self):
+        """Mark every annotation as saved."""
+        for a in self.annotations:
+            a["saved"] = True
+
     def to_coco(self):
         """Return the full annotation data as a COCO-format dictionary."""
+        # Strip the internal 'saved' flag so it does not appear in output
+        clean_annotations = [
+            {k: v for k, v in a.items() if k != "saved"}
+            for a in self.annotations
+        ]
         return {
             "images": self.images,
-            "annotations": self.annotations,
+            "annotations": clean_annotations,
             "categories": self.categories,
         }
 
@@ -84,6 +99,7 @@ class AnnotationStore:
         """
         with open(filepath, "w") as f:
             json.dump(self.to_coco(), f, indent=2)
+        self.mark_all_saved()
 
     def load_from_file(self, filepath):
         """Load annotations from a COCO JSON file.
@@ -122,6 +138,9 @@ class AnnotationStore:
             )
         else:
             self._next_annotation_id = 1
+
+        # Loaded annotations already exist on disk, so mark them as saved
+        self.mark_all_saved()
 
     def clear(self):
         """Remove all images and annotations."""
