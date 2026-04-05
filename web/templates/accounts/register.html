@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Register — AutoBound{% endblock %}
+
+{% block content %}
+<div class="auth-card">
+  <h2>Create Account</h2>
+  <form method="post">
+    {% csrf_token %}
+    {% for field in form %}
+      <div class="form-group">
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.errors %}
+          <span class="field-error">{{ field.errors.0 }}</span>
+        {% endif %}
+        {% if field.help_text %}
+          <small class="help-text">{{ field.help_text }}</small>
+        {% endif %}
+      </div>
+    {% endfor %}
+    <button type="submit" class="btn btn-accent btn-block">Register</button>
+  </form>
+  <p class="auth-link">Already have an account? <a href="{% url 'login' %}">Login</a></p>
+</div>
+{% endblock %}
