@@ -2,7 +2,7 @@ import os.path
 import sys
 import platform
 import tkinter
-from tkinter import Tk, Frame, Menu, StringVar, Canvas
+from tkinter import Tk, Frame, Menu, StringVar, BooleanVar, Canvas
 import webbrowser
 import cv2
 import ctypes
@@ -529,7 +529,7 @@ if __name__ == "__main__":
     info_message = StringVar()
     info_message.set("Hi :)")
 
-    show_bboxes_var = tkinter.BooleanVar(value=True)
+    show_bboxes_var = BooleanVar(value=True)
 
     bold8  = CTkFont(family = "Segoe UI", size = 8, weight = "bold")
     bold9  = CTkFont(family = "Segoe UI", size = 9, weight = "bold")
