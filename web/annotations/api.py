@@ -1,6 +1,5 @@
 import base64
 import json
-import tempfile
 
 import cv2
 from django.http import JsonResponse
@@ -102,12 +101,10 @@ def get_frame(request, video_id, frame_number):
     if not video.file:
         return Response({"detail": "No video file."}, status=status.HTTP_404_NOT_FOUND)
 
-    cap = cv2.VideoCapture(video.file.path)
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    if frame_number < 0 or frame_number >= total:
-        cap.release()
+    if frame_number < 0 or (video.frame_count > 0 and frame_number >= video.frame_count):
         return Response({"detail": "Frame out of range."}, status=status.HTTP_400_BAD_REQUEST)
 
+    cap = cv2.VideoCapture(video.file.path)
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
     ret, frame = cap.read()
     cap.release()
@@ -121,5 +118,5 @@ def get_frame(request, video_id, frame_number):
     return Response({
         "frame": frame_b64,
         "frame_number": frame_number,
-        "total_frames": total,
+        "total_frames": video.frame_count,
     })
