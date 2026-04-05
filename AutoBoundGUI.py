@@ -67,6 +67,7 @@ bbox_start_y = 0
 bbox_rect_id = None
 bbox_canvas  = None
 bbox_photo   = None
+bbox_scale   = 1.0
 current_image_id = None
 
 # Classes and utils -------------------
@@ -252,7 +253,7 @@ def open_files_action():
                                                 file_element = actual_file)
             remove_file("temp.jpg")
     
-        info_message.set("Ready  |  Click a video label to annotate, or use File > Save Annotations")
+        info_message.set("Ready  |  First video loaded for annotation")
 
         # Open the first video on the annotation canvas automatically
         show_frame_with_canvas(supported_files_list[0])
@@ -294,10 +295,16 @@ def on_bbox_mouse_release(event):
     h  = y2 - y1
 
     if w > 2 and h > 2 and current_image_id is not None:
-        annotation_store.add_annotation(current_image_id, [x1, y1, w, h])
+        # Convert canvas coordinates back to original image dimensions
+        inv_scale = 1.0 / bbox_scale
+        orig_x = round(x1 * inv_scale)
+        orig_y = round(y1 * inv_scale)
+        orig_w = round(w * inv_scale)
+        orig_h = round(h * inv_scale)
+        annotation_store.add_annotation(current_image_id, [orig_x, orig_y, orig_w, orig_h])
         count = len(annotation_store.get_annotations_for_image(current_image_id))
         info_message.set("Bounding box saved  |  Total: " + str(count))
-        print("> Added bbox [" + str(x1) + ", " + str(y1) + ", " + str(w) + ", " + str(h) + "]")
+        print("> Added bbox [" + str(orig_x) + ", " + str(orig_y) + ", " + str(orig_w) + ", " + str(orig_h) + "]")
     else:
         # Too small – remove the drawn rectangle
         bbox_canvas.delete(bbox_rect_id)
@@ -311,7 +318,7 @@ def show_frame_with_canvas(video_file):
     cap = cv2.VideoCapture(video_file)
     width  = round(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = round(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    video_name = str(video_file.split("/")[-1])
+    video_name = os.path.basename(video_file)
 
     ret, frame = cap.read()
     cap.release()
@@ -319,13 +326,21 @@ def show_frame_with_canvas(video_file):
         info_message.set("Could not read video frame")
         return
 
-    current_image_id = annotation_store.add_image(video_name, width, height)
+    # Avoid duplicate image entries for the same file
+    existing = [img for img in annotation_store.images if img["file_name"] == video_name]
+    if existing:
+        current_image_id = existing[0]["id"]
+    else:
+        current_image_id = annotation_store.add_image(video_name, width, height)
 
     # Scale frame to fit within canvas area
     canvas_w, canvas_h = 600, 400
     scale = min(canvas_w / width, canvas_h / height, 1.0)
     display_w = int(width * scale)
     display_h = int(height * scale)
+
+    global bbox_scale
+    bbox_scale = scale
 
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     pil_image = Image.fromarray(frame_rgb).resize((display_w, display_h), Image.LANCZOS)
