@@ -19,6 +19,7 @@ class VideoFile(models.Model):
     width = models.PositiveIntegerField()
     height = models.PositiveIntegerField()
     frame_count = models.PositiveIntegerField(default=0)
+    fps = models.FloatField(default=30.0)
     frame_image = models.ImageField(upload_to="frames/", blank=True, null=True)
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

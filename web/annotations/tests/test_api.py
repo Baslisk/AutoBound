@@ -235,3 +235,32 @@ class FrameAPITest(TestCase):
         self.client.logout()
         resp = self.client.get(f"/api/frame/{self.video.pk}/0/")
         self.assertIn(resp.status_code, [401, 403])
+
+
+class AnnotateViewTest(TestCase):
+    """Test that the annotate view passes FPS to the template context."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("tester", password="pass1234")
+        self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        self.video = VideoFile.objects.create(
+            file_name="clip.mp4", width=800, height=600,
+            frame_count=300, fps=24.0, uploaded_by=self.user,
+        )
+        self.client = APIClient()
+        self.client.login(username="tester", password="pass1234")
+
+    def test_annotate_context_contains_fps(self):
+        resp = self.client.get(f"/annotate/{self.video.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("fps", resp.context)
+        self.assertEqual(resp.context["fps"], 24.0)
+
+    def test_annotate_context_default_fps(self):
+        video = VideoFile.objects.create(
+            file_name="default.mp4", width=640, height=480,
+            uploaded_by=self.user,
+        )
+        resp = self.client.get(f"/annotate/{video.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context["fps"], 30.0)

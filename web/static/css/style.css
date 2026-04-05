@@ -242,3 +242,25 @@ body {
   cursor: pointer;
   border: none;
 }
+
+/* Time display */
+.time-display {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  padding: 0 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+/* Play/pause button */
+#playPauseBtn.playing {
+  background: var(--yellow);
+  border-color: var(--yellow);
+  color: #000;
+}
+#playPauseBtn.playing:hover {
+  background: #e6ac00;
+  border-color: #e6ac00;
+}

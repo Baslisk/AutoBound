@@ -52,12 +52,14 @@ def upload_video(request):
     width = round(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = round(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
     ret, frame = cap.read()
     cap.release()
 
     video.width = width
     video.height = height
     video.frame_count = max(frame_count, 0)
+    video.fps = fps if fps and fps > 0 else 30.0
 
     if ret:
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -90,4 +92,5 @@ def annotate(request, video_id):
         "annotations_json": [a.to_coco_dict() for a in annotations],
         "frame_url": frame_url,
         "frame_count": video.frame_count,
+        "fps": video.fps,
     })

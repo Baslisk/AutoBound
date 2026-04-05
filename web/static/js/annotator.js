@@ -14,8 +14,11 @@
   const importInput = document.getElementById("importInput");
   const prevFrameBtn = document.getElementById("prevFrameBtn");
   const nextFrameBtn = document.getElementById("nextFrameBtn");
+  const playPauseBtn = document.getElementById("playPauseBtn");
   const frameSlider = document.getElementById("frameSlider");
   const frameIndicator = document.getElementById("frameIndicator");
+  const currentTimeEl = document.getElementById("currentTime");
+  const remainingTimeEl = document.getElementById("remainingTime");
 
   let img = new Image();
   let scale = 1;
@@ -29,6 +32,13 @@
   let currentFrame = 0;
   let totalFrames = FRAME_COUNT || 0;
   let loadingFrame = false;
+
+  /* ---------- playback state ---------- */
+  var fps = (typeof FPS !== "undefined" && FPS > 0) ? FPS : 30;
+  var playing = false;
+  var playbackRAF = null;        // requestAnimationFrame handle
+  var lastFrameTime = 0;         // timestamp of last frame advance
+  var frameDuration = 1000 / fps; // ms between frames
 
   /* ---------- frame cache (client-side LRU) ---------- */
 
@@ -68,13 +78,27 @@
     return Object.assign({ "X-CSRFToken": CSRF_TOKEN, "Content-Type": "application/json" }, extra || {});
   }
 
+  function formatTime(seconds) {
+    if (!isFinite(seconds) || seconds < 0) seconds = 0;
+    var m = Math.floor(seconds / 60);
+    var s = Math.floor(seconds % 60);
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
   function updateFrameUI() {
     var display = totalFrames > 0 ? (currentFrame + 1) + " / " + totalFrames : "0 / 0";
     frameIndicator.textContent = "Frame " + display;
     frameSlider.value = currentFrame;
 
-    prevFrameBtn.disabled = currentFrame <= 0;
-    nextFrameBtn.disabled = totalFrames <= 0 || currentFrame >= totalFrames - 1;
+    prevFrameBtn.disabled = currentFrame <= 0 || playing;
+    nextFrameBtn.disabled = totalFrames <= 0 || currentFrame >= totalFrames - 1 || playing;
+
+    // Time display
+    var currentSec = currentFrame / fps;
+    var totalSec = totalFrames > 0 ? (totalFrames - 1) / fps : 0;
+    var remainSec = totalSec - currentSec;
+    if (currentTimeEl) currentTimeEl.textContent = formatTime(currentSec);
+    if (remainingTimeEl) remainingTimeEl.textContent = "-" + formatTime(remainSec);
   }
 
   /* ---------- drawing ---------- */
@@ -178,7 +202,96 @@
     }
   }
 
+  function prefetchForPlayback(center) {
+    // During playback, prefetch more frames ahead (up to 15)
+    for (var d = 1; d <= 15; d++) {
+      var n = center + d;
+      if (n >= 0 && n < totalFrames && !frameCacheMap.has(n)) {
+        fetchFrameImage(n, null);
+      }
+    }
+  }
+
+  /* ---------- playback ---------- */
+
+  function applyFrameQuick(image, frameNum) {
+    // Lightweight frame apply during playback (skip annotation loading)
+    img = image;
+    currentFrame = frameNum;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    updateFrameUI();
+  }
+
+  function playbackTick(timestamp) {
+    if (!playing) return;
+
+    var elapsed = timestamp - lastFrameTime;
+    if (elapsed >= frameDuration) {
+      var nextFrame = currentFrame + 1;
+      if (nextFrame >= totalFrames) {
+        stopPlayback();
+        return;
+      }
+
+      var cached = frameCacheGet(nextFrame);
+      if (cached) {
+        applyFrameQuick(cached, nextFrame);
+        lastFrameTime = timestamp - (elapsed - frameDuration); // account for overshoot
+        // Prefetch ahead while playing
+        if (nextFrame % 5 === 0) {
+          prefetchForPlayback(nextFrame);
+        }
+      } else {
+        // Frame not cached yet — prefetch and wait (skip this tick)
+        prefetchForPlayback(currentFrame);
+      }
+    }
+
+    playbackRAF = requestAnimationFrame(playbackTick);
+  }
+
+  function startPlayback() {
+    if (totalFrames <= 1) return;
+    if (currentFrame >= totalFrames - 1) {
+      // If at end, restart from beginning
+      currentFrame = 0;
+      var cached = frameCacheGet(0);
+      if (cached) applyFrame(cached, 0);
+    }
+    playing = true;
+    lastFrameTime = performance.now();
+    playPauseBtn.textContent = "⏸ Pause";
+    playPauseBtn.classList.add("playing");
+    frameSlider.disabled = true;
+    prefetchForPlayback(currentFrame);
+    playbackRAF = requestAnimationFrame(playbackTick);
+  }
+
+  function stopPlayback() {
+    playing = false;
+    if (playbackRAF) {
+      cancelAnimationFrame(playbackRAF);
+      playbackRAF = null;
+    }
+    playPauseBtn.textContent = "▶ Play";
+    playPauseBtn.classList.remove("playing");
+    frameSlider.disabled = false;
+    // Reload annotations for current frame after stopping
+    loadAnnotationsForFrame(currentFrame);
+    updateFrameUI();
+  }
+
+  function togglePlayback() {
+    if (playing) {
+      stopPlayback();
+    } else {
+      startPlayback();
+    }
+  }
+
   function goToFrame(frameNum) {
+    if (playing) stopPlayback();
     if (loadingFrame) return;
     if (frameNum < 0 || frameNum >= totalFrames) return;
     if (frameNum === currentFrame && img.complete && img.src) {
@@ -210,6 +323,7 @@
   /* ---------- mouse events ---------- */
 
   canvas.addEventListener("mousedown", function (e) {
+    if (playing) return;
     drawing = true;
     const rect = canvas.getBoundingClientRect();
     startX = e.clientX - rect.left;
@@ -327,6 +441,10 @@
     if (currentFrame < totalFrames - 1) goToFrame(currentFrame + 1);
   });
 
+  playPauseBtn.addEventListener("click", function () {
+    togglePlayback();
+  });
+
   frameSlider.addEventListener("input", function () {
     if (sliderDebounceTimer) clearTimeout(sliderDebounceTimer);
     sliderDebounceTimer = setTimeout(function () {
@@ -339,7 +457,10 @@
 
   document.addEventListener("keydown", function (e) {
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-    if (e.key === "ArrowLeft") {
+    if (e.key === " " || e.code === "Space") {
+      e.preventDefault();
+      togglePlayback();
+    } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       if (currentFrame > 0) goToFrame(currentFrame - 1);
     } else if (e.key === "ArrowRight") {
