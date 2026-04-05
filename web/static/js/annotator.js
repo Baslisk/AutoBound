@@ -44,6 +44,7 @@
 
   var frameCacheMax = 32;
   var frameCacheMap = new Map(); // frame_number -> Image (decoded & ready)
+  var frameFetching = new Set(); // frame numbers currently being fetched
 
   function frameCacheGet(n) {
     if (!frameCacheMap.has(n)) return null;
@@ -169,11 +170,13 @@
   }
 
   function fetchFrameImage(frameNum, cb) {
+    frameFetching.add(frameNum);
     fetch("/api/frame/" + VIDEO_ID + "/" + frameNum + "/", {
       headers: headers(),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
+        frameFetching.delete(frameNum);
         if (data.frame) {
           var newImg = new Image();
           newImg.onload = function () {
@@ -190,13 +193,13 @@
           if (cb) cb(null);
         }
       })
-      .catch(function () { if (cb) cb(null); });
+      .catch(function () { frameFetching.delete(frameNum); if (cb) cb(null); });
   }
 
   function prefetchFrames(center) {
     for (var d = -3; d <= 3; d++) {
       var n = center + d;
-      if (n >= 0 && n < totalFrames && !frameCacheMap.has(n)) {
+      if (n >= 0 && n < totalFrames && !frameCacheMap.has(n) && !frameFetching.has(n)) {
         fetchFrameImage(n, null);
       }
     }
@@ -206,7 +209,7 @@
     // During playback, prefetch more frames ahead (up to 15)
     for (var d = 1; d <= 15; d++) {
       var n = center + d;
-      if (n >= 0 && n < totalFrames && !frameCacheMap.has(n)) {
+      if (n >= 0 && n < totalFrames && !frameCacheMap.has(n) && !frameFetching.has(n)) {
         fetchFrameImage(n, null);
       }
     }
