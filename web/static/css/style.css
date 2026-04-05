@@ -205,6 +205,19 @@ body {
   justify-content: center;
   gap: 1rem;
 }
+.fps-select {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  outline: none;
+}
+.fps-select:focus {
+  border-color: var(--accent);
+}
 .frame-indicator {
   font-size: 0.875rem;
   color: var(--text-secondary);

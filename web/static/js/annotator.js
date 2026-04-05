@@ -19,6 +19,7 @@
   const frameIndicator = document.getElementById("frameIndicator");
   const currentTimeEl = document.getElementById("currentTime");
   const remainingTimeEl = document.getElementById("remainingTime");
+  const fpsSelect = document.getElementById("fpsSelect");
 
   let img = new Image();
   let scale = 1;
@@ -39,6 +40,27 @@
   var playbackRAF = null;        // requestAnimationFrame handle
   var lastFrameTime = 0;         // timestamp of last frame advance
   var frameDuration = 1000 / fps; // ms between frames
+
+  /* Set the FPS dropdown to the closest matching option */
+  (function initFpsSelect() {
+    var options = fpsSelect.options;
+    var best = 0;
+    var bestDiff = Infinity;
+    for (var i = 0; i < options.length; i++) {
+      var diff = Math.abs(parseFloat(options[i].value) - fps);
+      if (diff < bestDiff) { bestDiff = diff; best = i; }
+    }
+    if (bestDiff > 0.5) {
+      var rounded = Math.round(fps * 100) / 100;
+      var opt = document.createElement("option");
+      opt.value = String(rounded);
+      opt.textContent = rounded + " fps (native)";
+      fpsSelect.insertBefore(opt, options[best]);
+      fpsSelect.value = String(rounded);
+    } else {
+      fpsSelect.value = options[best].value;
+    }
+  })();
 
   /* ---------- frame cache (client-side LRU) ---------- */
 
@@ -446,6 +468,16 @@
 
   playPauseBtn.addEventListener("click", function () {
     togglePlayback();
+  });
+
+  fpsSelect.addEventListener("change", function () {
+    var newFps = parseFloat(fpsSelect.value);
+    if (isNaN(newFps) || newFps <= 0) return;
+    fps = newFps;
+    frameDuration = 1000 / fps;
+    if (playing) {
+      lastFrameTime = performance.now();
+    }
   });
 
   frameSlider.addEventListener("input", function () {
