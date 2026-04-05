@@ -3,6 +3,8 @@
 A tool for generating bounding box datasets with automation features.
 Includes a desktop GUI (CustomTkinter) and a Django web application.
 
+<video src="Assets/demo.mp4" controls width="800"></video>
+
 ## Setup
 
 1. Clone the repository and navigate to the project directory.
@@ -39,7 +41,7 @@ python manage.py runserver
 Open http://127.0.0.1:8000/ in a browser to register or log in.
 
 ### Database
-
+6
 By default the web app uses an **in-memory SQLite** database (data is lost
 when the server stops). To persist data, set the `DB_PATH` environment
 variable:
