@@ -67,6 +67,18 @@
     <ul id="annList" class="ann-list"></ul>
   </aside>
 </div>
+
+<div id="importModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h3>Import Annotations</h3>
+    <p>This video already has annotations. What would you like to do with them before importing?</p>
+    <div class="modal-actions">
+      <button class="btn btn-green" id="modalSave">Save &amp; Replace</button>
+      <button class="btn btn-red" id="modalDiscard">Discard &amp; Replace</button>
+      <button class="btn" id="modalCancel">Cancel</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}

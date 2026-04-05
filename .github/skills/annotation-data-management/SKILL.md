@@ -38,16 +38,36 @@ COCO JSON ←→ import_coco() / export_coco() ←→ Django Models ←→ DRF A
 - `renderAnnotationPanel()` — builds the panel DOM (grouped by frame), highlights active frame group
 - `goToFrame(frameNum)` — navigates to a frame (checks cache, fetches if needed)
 - `draw()` — redraws canvas with optional `highlightId` bbox glow
+- `clearAllAnnotations()` — calls `DELETE /api/annotations/clear/?image_id=VIDEO_ID`, resets `bboxes[]` and `allAnnotations[]`, redraws. Returns a Promise.
+- `doImport(fileContent)` — POSTs file content to `/api/import/?video_id=VIDEO_ID`, reloads frame annotations + panel
+- `showImportModal(fileContent)` — if annotations exist, shows 3-option modal (Save & Replace / Discard & Replace / Cancel); if none exist, calls `doImport()` directly
+- `exportToFile()` — fetches COCO JSON and saves via `showSaveFilePicker` (or fallback download). Returns a Promise.
 
 ### When to Refresh Panel
 Call `loadAllAnnotations()` after:
 - Drawing a new bbox (mouseup → POST success)
 - Clearing annotations (clearBtn click → DELETE success)
-- Importing COCO JSON (importInput change → POST success)
+- Importing COCO JSON (after `doImport()` succeeds)
+- Bulk clear via `clearAllAnnotations()`
 
 Call `renderAnnotationPanel()` (no fetch) after:
 - `loadAnnotationsForFrame()` completes (to sync active frame highlight)
 - Panel item click (to update active states)
+
+## Import Flow
+
+When the user selects a `.json` file via the Import button:
+1. File is read as text via `FileReader`
+2. `showImportModal(fileContent)` is called
+3. If `allAnnotations.length === 0` — imports directly via `doImport()` (no modal)
+4. If annotations exist — shows a custom modal with 3 options:
+   - **Save & Replace**: `exportToFile()` → `clearAllAnnotations()` → `doImport()`
+   - **Discard & Replace**: `clearAllAnnotations()` → `doImport()`
+   - **Cancel**: hides modal, no changes
+5. After import, only the newly imported annotations are displayed
+
+### Bulk Clear API
+`DELETE /api/annotations/clear/?image_id=X` — deletes all annotations for the given video belonging to the current user. Returns `{"deleted": count}`. Requires `image_id` query param (400 if missing). Scoped to current user only.
 
 ## COCO Format Extensions
 
@@ -115,7 +135,7 @@ Panel items have `data-ann-id` and `data-frame` attributes for test hooks.
 
 ## Files
 - `web/annotations/models.py` — `to_coco_dict()` with metadata
-- `web/annotations/api.py` — `import_coco()` with metadata update, `export_coco()`
-- `web/static/js/annotator.js` — panel logic, `loadAllAnnotations()`, `renderAnnotationPanel()`
-- `web/templates/annotations/annotate.html` — panel HTML (`<aside class="ann-panel">`)
-- `web/static/css/style.css` — `.ann-panel`, `.ann-item`, `.ann-frame-group` styles
+- `web/annotations/api.py` — `import_coco()` with metadata update, `export_coco()`, `clear_annotations()` bulk delete
+- `web/static/js/annotator.js` — panel logic, import modal flow, `clearAllAnnotations()`, `doImport()`, `showImportModal()`, `exportToFile()`
+- `web/templates/annotations/annotate.html` — panel HTML (`<aside class="ann-panel">`), import modal (`<div id="importModal">`)
+- `web/static/css/style.css` — `.ann-panel`, `.ann-item`, `.ann-frame-group`, `.modal-overlay`, `.modal-card` styles

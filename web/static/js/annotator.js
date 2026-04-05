@@ -23,6 +23,10 @@
   const annPanel = document.getElementById("annPanel");
   const annList = document.getElementById("annList");
   const annPanelCount = document.getElementById("annPanelCount");
+  const importModal = document.getElementById("importModal");
+  const modalSave = document.getElementById("modalSave");
+  const modalDiscard = document.getElementById("modalDiscard");
+  const modalCancel = document.getElementById("modalCancel");
 
   let img = new Image();
   let scale = 1;
@@ -577,22 +581,118 @@
     if (!file) return;
     const reader = new FileReader();
     reader.onload = function () {
-      fetch("/api/import/?video_id=" + VIDEO_ID, {
-        method: "POST",
-        headers: headers(),
-        body: reader.result,
-      })
-        .then(r => r.json())
-        .then(data => {
-          setStatus("Imported " + data.imported + " annotations");
-          loadAnnotationsForFrame(currentFrame);
-          loadAllAnnotations();
-        })
-        .catch(() => setStatus("Import failed"));
+      showImportModal(reader.result);
     };
     reader.readAsText(file);
     importInput.value = "";
   });
+
+  /* ---------- import helpers ---------- */
+
+  function clearAllAnnotations() {
+    return fetch("/api/annotations/clear/?image_id=" + VIDEO_ID, {
+      method: "DELETE",
+      headers: headers(),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        bboxes = [];
+        allAnnotations = [];
+        updateCount();
+        draw();
+        renderAnnotationPanel();
+        return data;
+      });
+  }
+
+  function doImport(fileContent) {
+    fetch("/api/import/?video_id=" + VIDEO_ID, {
+      method: "POST",
+      headers: headers(),
+      body: fileContent,
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        setStatus("Imported " + data.imported + " annotations");
+        loadAnnotationsForFrame(currentFrame);
+        loadAllAnnotations();
+      })
+      .catch(function () { setStatus("Import failed"); });
+  }
+
+  function exportToFile() {
+    return fetch("/api/export/" + VIDEO_ID + "/", { headers: headers() })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var jsonStr = JSON.stringify(data, null, 2);
+        var defaultName = "annotations_" + VIDEO_ID + ".json";
+
+        if (typeof window.showSaveFilePicker === "function") {
+          return window.showSaveFilePicker({
+            suggestedName: defaultName,
+            types: [{
+              description: "COCO JSON",
+              accept: { "application/json": [".json"] },
+            }],
+          }).then(function (handle) {
+            return handle.createWritable().then(function (writable) {
+              return writable.write(jsonStr).then(function () {
+                return writable.close();
+              });
+            });
+          });
+        } else {
+          var blob = new Blob([jsonStr], { type: "application/json" });
+          var a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = defaultName;
+          a.click();
+          URL.revokeObjectURL(a.href);
+          return Promise.resolve();
+        }
+      });
+  }
+
+  function hideImportModal() {
+    if (importModal) importModal.classList.add("hidden");
+  }
+
+  function showImportModal(fileContent) {
+    if (allAnnotations.length === 0) {
+      doImport(fileContent);
+      return;
+    }
+
+    importModal.classList.remove("hidden");
+
+    modalSave.addEventListener("click", function () {
+      exportToFile().then(function () {
+        setStatus("Saved — now replacing annotations…");
+        return clearAllAnnotations();
+      }).then(function () {
+        hideImportModal();
+        doImport(fileContent);
+      }).catch(function (err) {
+        if (err.name === "AbortError") return; // user cancelled save picker — stay on modal
+        hideImportModal();
+        setStatus("Export failed");
+      });
+    }, { once: true });
+
+    modalDiscard.addEventListener("click", function () {
+      clearAllAnnotations().then(function () {
+        hideImportModal();
+        doImport(fileContent);
+      }).catch(function () {
+        hideImportModal();
+        setStatus("Error clearing annotations");
+      });
+    }, { once: true });
+
+    modalCancel.addEventListener("click", function () {
+      hideImportModal();
+    }, { once: true });
+  }
 
   /* ---------- frame navigation ---------- */
 

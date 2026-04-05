@@ -123,6 +123,16 @@ def import_coco(request):
     return Response({"imported": count}, status=status.HTTP_201_CREATED)
 
 
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def clear_annotations(request):
+    image_id = request.query_params.get("image_id")
+    if image_id is None:
+        return Response({"detail": "image_id query param required."}, status=status.HTTP_400_BAD_REQUEST)
+    deleted, _ = Annotation.objects.filter(image_id=image_id, created_by=request.user).delete()
+    return Response({"deleted": deleted})
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_frame(request, video_id, frame_number):

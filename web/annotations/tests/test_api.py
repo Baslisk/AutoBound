@@ -266,6 +266,84 @@ class ExportImportCOCOTest(TestCase):
         self.assertEqual(self.video.fps, 60.0)
 
 
+class ClearAnnotationsTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("tester", password="pass1234")
+        self.other = User.objects.create_user("other", password="pass5678")
+        self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        self.video = VideoFile.objects.create(
+            file_name="clip.mp4", width=800, height=600, uploaded_by=self.user,
+        )
+        for i in range(5):
+            Annotation.objects.create(
+                image=self.video, category=self.cat,
+                bbox_x=i, bbox_y=i, bbox_w=10, bbox_h=10,
+                created_by=self.user,
+            )
+        self.client = APIClient()
+        self.client.login(username="tester", password="pass1234")
+
+    def test_clear_deletes_all_for_video(self):
+        self.assertEqual(Annotation.objects.filter(image=self.video).count(), 5)
+        resp = self.client.delete(f"/api/annotations/clear/?image_id={self.video.pk}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["deleted"], 5)
+        self.assertEqual(Annotation.objects.filter(image=self.video).count(), 0)
+
+    def test_clear_scoped_to_user(self):
+        """Other user's annotations on the same video should not be deleted."""
+        Annotation.objects.create(
+            image=self.video, category=self.cat,
+            bbox_x=99, bbox_y=99, bbox_w=10, bbox_h=10,
+            created_by=self.other,
+        )
+        resp = self.client.delete(f"/api/annotations/clear/?image_id={self.video.pk}")
+        self.assertEqual(resp.json()["deleted"], 5)
+        # Other user's annotation survives
+        self.assertEqual(Annotation.objects.filter(created_by=self.other).count(), 1)
+
+    def test_clear_requires_image_id(self):
+        resp = self.client.delete("/api/annotations/clear/")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_clear_unauthenticated(self):
+        self.client.logout()
+        resp = self.client.delete(f"/api/annotations/clear/?image_id={self.video.pk}")
+        self.assertIn(resp.status_code, [401, 403])
+
+    def test_import_after_clear_only_has_new(self):
+        """After clearing and importing, only the new annotations should exist."""
+        self.assertEqual(Annotation.objects.filter(image=self.video, created_by=self.user).count(), 5)
+
+        # Clear
+        resp = self.client.delete(f"/api/annotations/clear/?image_id={self.video.pk}")
+        self.assertEqual(resp.json()["deleted"], 5)
+
+        # Import new annotations
+        coco = {
+            "images": [{"id": 1, "file_name": "clip.mp4", "width": 800, "height": 600}],
+            "annotations": [
+                {"image_id": 1, "category_id": 1, "bbox": [100, 200, 50, 60], "frame_number": 3},
+                {"image_id": 1, "category_id": 1, "bbox": [300, 400, 70, 80], "frame_number": 7},
+            ],
+        }
+        resp = self.client.post(
+            f"/api/import/?video_id={self.video.pk}",
+            data=json.dumps(coco),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["imported"], 2)
+
+        # Only the 2 newly imported annotations should exist
+        anns = list(Annotation.objects.filter(image=self.video, created_by=self.user).order_by("frame_number"))
+        self.assertEqual(len(anns), 2)
+        self.assertEqual(anns[0].frame_number, 3)
+        self.assertEqual(anns[0].bbox_x, 100)
+        self.assertEqual(anns[1].frame_number, 7)
+        self.assertEqual(anns[1].bbox_x, 300)
+
+
 class FrameAPITest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("tester", password="pass1234")

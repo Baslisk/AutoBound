@@ -1,0 +1,119 @@
+{
+  "images": [
+    {
+      "id": 2,
+      "file_name": "nyan.mp4",
+      "width": 3840,
+      "height": 2160,
+      "frame_count": 670,
+      "fps": 30
+    }
+  ],
+  "annotations": [
+    {
+      "id": 52,
+      "image_id": 2,
+      "category_id": 1,
+      "bbox": [
+        321,
+        408,
+        60,
+        58
+      ],
+      "area": 3480,
+      "iscrowd": 0,
+      "frame_number": 0
+    },
+    {
+      "id": 53,
+      "image_id": 2,
+      "category_id": 1,
+      "bbox": [
+        331,
+        406,
+        64,
+        68
+      ],
+      "area": 4352,
+      "iscrowd": 0,
+      "frame_number": 1
+    },
+    {
+      "id": 54,
+      "image_id": 2,
+      "category_id": 1,
+      "bbox": [
+        230,
+        413,
+        95,
+        67
+      ],
+      "area": 6365,
+      "iscrowd": 0,
+      "frame_number": 2
+    },
+    {
+      "id": 55,
+      "image_id": 2,
+      "category_id": 1,
+      "bbox": [
+        234,
+        407,
+        76,
+        75
+      ],
+      "area": 5700,
+      "iscrowd": 0,
+      "frame_number": 3
+    },
+    {
+      "id": 56,
+      "image_id": 2,
+      "category_id": 1,
+      "bbox": [
+        157,
+        400,
+        92,
+        67
+      ],
+      "area": 6164,
+      "iscrowd": 0,
+      "frame_number": 4
+    },
+    {
+      "id": 57,
+      "image_id": 2,
+      "category_id": 1,
+      "bbox": [
+        157,
+        406,
+        81,
+        65
+      ],
+      "area": 5265,
+      "iscrowd": 0,
+      "frame_number": 5
+    },
+    {
+      "id": 58,
+      "image_id": 2,
+      "category_id": 1,
+      "bbox": [
+        64,
+        398,
+        91,
+        78
+      ],
+      "area": 7098,
+      "iscrowd": 0,
+      "frame_number": 6
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "object",
+      "supercategory": "none"
+    }
+  ]
+}
