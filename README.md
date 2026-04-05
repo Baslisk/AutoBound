@@ -3,7 +3,7 @@
 A tool for generating bounding box datasets with automation features.
 Includes a desktop GUI (CustomTkinter) and a Django web application.
 
-<video src="Assets/demo.mp4" controls width="800"></video>
+<video src="Assets/demo.mp4" autoplay loop muted width="800"></video>
 
 ## Setup
 
