@@ -85,6 +85,44 @@ class AnnotationStore:
         with open(filepath, "w") as f:
             json.dump(self.to_coco(), f, indent=2)
 
+    def load_from_file(self, filepath):
+        """Load annotations from a COCO JSON file.
+
+        Replaces current images, annotations, and categories with the data
+        read from *filepath*.  The internal id counters are updated so that
+        future calls to ``add_image`` / ``add_annotation`` do not collide
+        with the loaded ids.
+
+        Args:
+            filepath: Path to a JSON file in COCO format.
+
+        Raises:
+            FileNotFoundError: If *filepath* does not exist.
+            json.JSONDecodeError: If the file is not valid JSON.
+            KeyError: If required top-level keys are missing.
+        """
+        with open(filepath, "r") as f:
+            data = json.load(f)
+
+        self.images = data["images"]
+        self.annotations = data["annotations"]
+        self.categories = data.get("categories",
+                                   [{"id": 1, "name": "object",
+                                     "supercategory": "none"}])
+
+        # Update counters to avoid id collisions
+        if self.images:
+            self._next_image_id = max(img["id"] for img in self.images) + 1
+        else:
+            self._next_image_id = 1
+
+        if self.annotations:
+            self._next_annotation_id = (
+                max(a["id"] for a in self.annotations) + 1
+            )
+        else:
+            self._next_annotation_id = 1
+
     def clear(self):
         """Remove all images and annotations."""
         self.images.clear()
