@@ -84,6 +84,15 @@ def import_coco(request):
     for img_data in data.get("images", []):
         if target_video is not None:
             image_id_map[img_data["id"]] = target_video
+            # Update video metadata from COCO data if present
+            updated = False
+            for field in ("width", "height", "frame_count", "fps"):
+                val = img_data.get(field)
+                if val is not None and val != getattr(target_video, field):
+                    setattr(target_video, field, val)
+                    updated = True
+            if updated:
+                target_video.save()
         else:
             video, _ = VideoFile.objects.get_or_create(
                 file_name=img_data["file_name"],
@@ -112,6 +121,16 @@ def import_coco(request):
         count += 1
 
     return Response({"imported": count}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def clear_annotations(request):
+    image_id = request.query_params.get("image_id")
+    if image_id is None:
+        return Response({"detail": "image_id query param required."}, status=status.HTTP_400_BAD_REQUEST)
+    deleted, _ = Annotation.objects.filter(image_id=image_id, created_by=request.user).delete()
+    return Response({"deleted": deleted})
 
 
 @api_view(["GET"])

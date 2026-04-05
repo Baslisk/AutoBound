@@ -1,0 +1,77 @@
+{
+  "images": [
+    {
+      "id": 1,
+      "file_name": "nyan.mp4",
+      "width": 640,
+      "height": 640,
+      "frame_count": 670,
+      "fps": 30
+    }
+  ],
+  "annotations": [
+    {
+      "id": 1,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        274,
+        175,
+        312,
+        182
+      ],
+      "area": 56784,
+      "iscrowd": 0,
+      "frame_number": 0
+    },
+    {
+      "id": 2,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        266,
+        192,
+        313,
+        158
+      ],
+      "area": 49454,
+      "iscrowd": 0,
+      "frame_number": 1
+    },
+    {
+      "id": 3,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        16,
+        216,
+        225,
+        215
+      ],
+      "area": 48375,
+      "iscrowd": 0,
+      "frame_number": 2
+    },
+    {
+      "id": 4,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        269,
+        170,
+        227,
+        228
+      ],
+      "area": 51756,
+      "iscrowd": 0,
+      "frame_number": 2
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "object",
+      "supercategory": "none"
+    }
+  ]
+}

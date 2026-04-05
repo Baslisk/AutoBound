@@ -41,6 +41,16 @@ class VideoFileModelTest(TestCase):
         )
         self.assertEqual(video.frame_count, 120)
 
+    def test_fps_default(self):
+        self.assertEqual(self.video.fps, 30.0)
+
+    def test_fps_custom(self):
+        video = VideoFile.objects.create(
+            file_name="hfr.mp4", width=1920, height=1080,
+            fps=60.0, uploaded_by=self.user,
+        )
+        self.assertEqual(video.fps, 60.0)
+
 
 class AnnotationModelTest(TestCase):
     def setUp(self):

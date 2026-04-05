@@ -14,8 +14,19 @@
   const importInput = document.getElementById("importInput");
   const prevFrameBtn = document.getElementById("prevFrameBtn");
   const nextFrameBtn = document.getElementById("nextFrameBtn");
+  const playPauseBtn = document.getElementById("playPauseBtn");
   const frameSlider = document.getElementById("frameSlider");
   const frameIndicator = document.getElementById("frameIndicator");
+  const currentTimeEl = document.getElementById("currentTime");
+  const remainingTimeEl = document.getElementById("remainingTime");
+  const fpsSelect = document.getElementById("fpsSelect");
+  const annPanel = document.getElementById("annPanel");
+  const annList = document.getElementById("annList");
+  const annPanelCount = document.getElementById("annPanelCount");
+  const importModal = document.getElementById("importModal");
+  const modalSave = document.getElementById("modalSave");
+  const modalDiscard = document.getElementById("modalDiscard");
+  const modalCancel = document.getElementById("modalCancel");
 
   let img = new Image();
   let scale = 1;
@@ -29,11 +40,42 @@
   let currentFrame = 0;
   let totalFrames = FRAME_COUNT || 0;
   let loadingFrame = false;
+  let allAnnotations = [];  // all annotations for this video (panel data)
+  let highlightId = null;   // annotation id to flash-highlight on canvas
+
+  /* ---------- playback state ---------- */
+  var fps = (typeof FPS !== "undefined" && FPS > 0) ? FPS : 30;
+  var playing = false;
+  var playbackRAF = null;        // requestAnimationFrame handle
+  var lastFrameTime = 0;         // timestamp of last frame advance
+  var frameDuration = 1000 / fps; // ms between frames
+
+  /* Set the FPS dropdown to the closest matching option */
+  (function initFpsSelect() {
+    var options = fpsSelect.options;
+    var best = 0;
+    var bestDiff = Infinity;
+    for (var i = 0; i < options.length; i++) {
+      var diff = Math.abs(parseFloat(options[i].value) - fps);
+      if (diff < bestDiff) { bestDiff = diff; best = i; }
+    }
+    if (bestDiff > 0.5) {
+      var rounded = Math.round(fps * 100) / 100;
+      var opt = document.createElement("option");
+      opt.value = String(rounded);
+      opt.textContent = rounded + " fps (native)";
+      fpsSelect.insertBefore(opt, options[best]);
+      fpsSelect.value = String(rounded);
+    } else {
+      fpsSelect.value = options[best].value;
+    }
+  })();
 
   /* ---------- frame cache (client-side LRU) ---------- */
 
   var frameCacheMax = 32;
   var frameCacheMap = new Map(); // frame_number -> Image (decoded & ready)
+  var frameFetching = new Set(); // frame numbers currently being fetched
 
   function frameCacheGet(n) {
     if (!frameCacheMap.has(n)) return null;
@@ -68,13 +110,27 @@
     return Object.assign({ "X-CSRFToken": CSRF_TOKEN, "Content-Type": "application/json" }, extra || {});
   }
 
+  function formatTime(seconds) {
+    if (!isFinite(seconds) || seconds < 0) seconds = 0;
+    var m = Math.floor(seconds / 60);
+    var s = Math.floor(seconds % 60);
+    return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
   function updateFrameUI() {
     var display = totalFrames > 0 ? (currentFrame + 1) + " / " + totalFrames : "0 / 0";
     frameIndicator.textContent = "Frame " + display;
     frameSlider.value = currentFrame;
 
-    prevFrameBtn.disabled = currentFrame <= 0;
-    nextFrameBtn.disabled = totalFrames <= 0 || currentFrame >= totalFrames - 1;
+    prevFrameBtn.disabled = currentFrame <= 0 || playing;
+    nextFrameBtn.disabled = totalFrames <= 0 || currentFrame >= totalFrames - 1 || playing;
+
+    // Time display
+    var currentSec = currentFrame / fps;
+    var totalSec = totalFrames > 0 ? (totalFrames - 1) / fps : 0;
+    var remainSec = totalSec - currentSec;
+    if (currentTimeEl) currentTimeEl.textContent = formatTime(currentSec);
+    if (remainingTimeEl) remainingTimeEl.textContent = "-" + formatTime(remainSec);
   }
 
   /* ---------- drawing ---------- */
@@ -84,17 +140,29 @@
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
     if (showBboxes.checked) {
-      ctx.strokeStyle = "#00FF00";
-      ctx.lineWidth = 2;
-      ctx.font = "bold 12px Segoe UI";
-      ctx.fillStyle = "#00FF00";
-
       for (const b of bboxes) {
         const cx = toCanvas(b.x);
         const cy = toCanvas(b.y);
         const cw = toCanvas(b.w);
         const ch = toCanvas(b.h);
+
+        if (highlightId !== null && b.id === highlightId) {
+          ctx.strokeStyle = "#FFD700";
+          ctx.lineWidth = 3;
+          ctx.shadowColor = "#FFD700";
+          ctx.shadowBlur = 8;
+        } else {
+          ctx.strokeStyle = "#00FF00";
+          ctx.lineWidth = 2;
+          ctx.shadowColor = "transparent";
+          ctx.shadowBlur = 0;
+        }
         ctx.strokeRect(cx, cy, cw, ch);
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+
+        ctx.font = "bold 12px Segoe UI";
+        ctx.fillStyle = (highlightId !== null && b.id === highlightId) ? "#FFD700" : "#00FF00";
         ctx.fillText(String(b.id), cx + 3, cy + 14);
       }
     }
@@ -123,6 +191,7 @@
         }
         updateCount();
         draw();
+        renderAnnotationPanel(); // sync active frame highlight
       })
       .catch(function () { setStatus("Error loading annotations"); });
   }
@@ -145,11 +214,13 @@
   }
 
   function fetchFrameImage(frameNum, cb) {
+    frameFetching.add(frameNum);
     fetch("/api/frame/" + VIDEO_ID + "/" + frameNum + "/", {
       headers: headers(),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
+        frameFetching.delete(frameNum);
         if (data.frame) {
           var newImg = new Image();
           newImg.onload = function () {
@@ -166,19 +237,108 @@
           if (cb) cb(null);
         }
       })
-      .catch(function () { if (cb) cb(null); });
+      .catch(function () { frameFetching.delete(frameNum); if (cb) cb(null); });
   }
 
   function prefetchFrames(center) {
     for (var d = -3; d <= 3; d++) {
       var n = center + d;
-      if (n >= 0 && n < totalFrames && !frameCacheMap.has(n)) {
+      if (n >= 0 && n < totalFrames && !frameCacheMap.has(n) && !frameFetching.has(n)) {
         fetchFrameImage(n, null);
       }
     }
   }
 
+  function prefetchForPlayback(center) {
+    // During playback, prefetch more frames ahead (up to 15)
+    for (var d = 1; d <= 15; d++) {
+      var n = center + d;
+      if (n >= 0 && n < totalFrames && !frameCacheMap.has(n) && !frameFetching.has(n)) {
+        fetchFrameImage(n, null);
+      }
+    }
+  }
+
+  /* ---------- playback ---------- */
+
+  function applyFrameQuick(image, frameNum) {
+    // Lightweight frame apply during playback (skip annotation loading)
+    img = image;
+    currentFrame = frameNum;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    updateFrameUI();
+  }
+
+  function playbackTick(timestamp) {
+    if (!playing) return;
+
+    var elapsed = timestamp - lastFrameTime;
+    if (elapsed >= frameDuration) {
+      var nextFrame = currentFrame + 1;
+      if (nextFrame >= totalFrames) {
+        stopPlayback();
+        return;
+      }
+
+      var cached = frameCacheGet(nextFrame);
+      if (cached) {
+        applyFrameQuick(cached, nextFrame);
+        lastFrameTime = timestamp - (elapsed - frameDuration); // account for overshoot
+        // Prefetch ahead while playing
+        if (nextFrame % 5 === 0) {
+          prefetchForPlayback(nextFrame);
+        }
+      } else {
+        // Frame not cached yet — prefetch and wait (skip this tick)
+        prefetchForPlayback(currentFrame);
+      }
+    }
+
+    playbackRAF = requestAnimationFrame(playbackTick);
+  }
+
+  function startPlayback() {
+    if (totalFrames <= 1) return;
+    if (currentFrame >= totalFrames - 1) {
+      // If at end, restart from beginning
+      currentFrame = 0;
+      var cached = frameCacheGet(0);
+      if (cached) applyFrame(cached, 0);
+    }
+    playing = true;
+    lastFrameTime = performance.now();
+    playPauseBtn.textContent = "⏸ Pause";
+    playPauseBtn.classList.add("playing");
+    frameSlider.disabled = true;
+    prefetchForPlayback(currentFrame);
+    playbackRAF = requestAnimationFrame(playbackTick);
+  }
+
+  function stopPlayback() {
+    playing = false;
+    if (playbackRAF) {
+      cancelAnimationFrame(playbackRAF);
+      playbackRAF = null;
+    }
+    playPauseBtn.textContent = "▶ Play";
+    playPauseBtn.classList.remove("playing");
+    frameSlider.disabled = false;
+    // Reload annotations for current frame after stopping
+    loadAnnotationsForFrame(currentFrame);
+    updateFrameUI();
+  }
+
+  function togglePlayback() {
+    if (playing) {
+      stopPlayback();
+    } else {
+      startPlayback();
+    }
+  }
+
   function goToFrame(frameNum) {
+    if (playing) stopPlayback();
     if (loadingFrame) return;
     if (frameNum < 0 || frameNum >= totalFrames) return;
     if (frameNum === currentFrame && img.complete && img.src) {
@@ -207,9 +367,104 @@
     });
   }
 
+  /* ---------- annotations panel ---------- */
+
+  function loadAllAnnotations(cb) {
+    fetch("/api/annotations/?image_id=" + VIDEO_ID, { headers: headers() })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        allAnnotations = data;
+        renderAnnotationPanel();
+        if (cb) cb();
+      })
+      .catch(function () { /* silent */ });
+  }
+
+  function renderAnnotationPanel() {
+    if (!annList) return;
+    var frag = document.createDocumentFragment();
+
+    // Group by frame_number
+    var groups = {};
+    for (var i = 0; i < allAnnotations.length; i++) {
+      var a = allAnnotations[i];
+      var fn = a.frame_number || 0;
+      if (!groups[fn]) groups[fn] = [];
+      groups[fn].push(a);
+    }
+
+    var frameNums = Object.keys(groups).map(Number).sort(function (a, b) { return a - b; });
+
+    for (var fi = 0; fi < frameNums.length; fi++) {
+      var frameNum = frameNums[fi];
+      var anns = groups[frameNum];
+
+      var groupEl = document.createElement("li");
+      groupEl.className = "ann-frame-group";
+
+      var header = document.createElement("div");
+      header.className = "ann-frame-header" + (frameNum === currentFrame ? " active" : "");
+      header.textContent = "Frame " + (frameNum + 1) + " (" + anns.length + ")";
+      groupEl.appendChild(header);
+
+      for (var ai = 0; ai < anns.length; ai++) {
+        var ann = anns[ai];
+        var item = document.createElement("div");
+        item.className = "ann-item" + (frameNum === currentFrame && highlightId === ann.id ? " active" : "");
+        item.setAttribute("data-ann-id", ann.id);
+        item.setAttribute("data-frame", frameNum);
+
+        var idSpan = document.createElement("span");
+        idSpan.className = "ann-item-id";
+        idSpan.textContent = "#" + ann.id;
+
+        var bboxSpan = document.createElement("span");
+        bboxSpan.className = "ann-item-bbox";
+        var bbox = [Math.round(ann.bbox_x), Math.round(ann.bbox_y), Math.round(ann.bbox_w), Math.round(ann.bbox_h)];
+        bboxSpan.textContent = bbox.join(", ");
+
+        item.appendChild(idSpan);
+        item.appendChild(bboxSpan);
+
+        (function (annId, fn) {
+          item.addEventListener("click", function () {
+            highlightId = annId;
+            if (fn !== currentFrame) {
+              goToFrame(fn);
+              // After frame loads, draw will pick up the highlightId
+            } else {
+              draw();
+            }
+            renderAnnotationPanel();
+            // Clear highlight after a short delay
+            setTimeout(function () {
+              if (highlightId === annId) {
+                highlightId = null;
+                draw();
+                renderAnnotationPanel();
+              }
+            }, 1500);
+          });
+        })(ann.id, frameNum);
+
+        groupEl.appendChild(item);
+      }
+
+      frag.appendChild(groupEl);
+    }
+
+    annList.innerHTML = "";
+    annList.appendChild(frag);
+
+    if (annPanelCount) {
+      annPanelCount.textContent = allAnnotations.length;
+    }
+  }
+
   /* ---------- mouse events ---------- */
 
   canvas.addEventListener("mousedown", function (e) {
+    if (playing) return;
     drawing = true;
     const rect = canvas.getBoundingClientRect();
     startX = e.clientX - rect.left;
@@ -258,6 +513,7 @@
         updateCount();
         setStatus("Bounding box saved");
         draw();
+        loadAllAnnotations();
       })
       .catch(() => setStatus("Error saving bbox"));
   });
@@ -273,15 +529,40 @@
   exportBtn.addEventListener("click", function () {
     fetch("/api/export/" + VIDEO_ID + "/", { headers: headers() })
       .then(r => r.json())
-      .then(data => {
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = "annotations_" + VIDEO_ID + ".json";
-        a.click();
-        setStatus("Exported COCO JSON");
+      .then(function (data) {
+        var jsonStr = JSON.stringify(data, null, 2);
+        var defaultName = "annotations_" + VIDEO_ID + ".json";
+
+        if (typeof window.showSaveFilePicker === "function") {
+          window.showSaveFilePicker({
+            suggestedName: defaultName,
+            types: [{
+              description: "COCO JSON",
+              accept: { "application/json": [".json"] },
+            }],
+          }).then(function (handle) {
+            return handle.createWritable().then(function (writable) {
+              return writable.write(jsonStr).then(function () {
+                return writable.close();
+              });
+            });
+          }).then(function () {
+            setStatus("Exported COCO JSON");
+          }).catch(function (err) {
+            if (err.name !== "AbortError") setStatus("Export failed");
+          });
+        } else {
+          // Fallback for browsers without File System Access API
+          var blob = new Blob([jsonStr], { type: "application/json" });
+          var a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = defaultName;
+          a.click();
+          URL.revokeObjectURL(a.href);
+          setStatus("Exported COCO JSON");
+        }
       })
-      .catch(() => setStatus("Export failed"));
+      .catch(function () { setStatus("Export failed"); });
   });
 
   clearBtn.addEventListener("click", function () {
@@ -292,8 +573,7 @@
       bboxes = [];
       updateCount();
       setStatus("All annotations cleared for this frame");
-      draw();
-    }).catch(() => setStatus("Error clearing annotations"));
+      draw();      loadAllAnnotations();    }).catch(() => setStatus("Error clearing annotations"));
   });
 
   importInput.addEventListener("change", function () {
@@ -301,21 +581,118 @@
     if (!file) return;
     const reader = new FileReader();
     reader.onload = function () {
-      fetch("/api/import/?video_id=" + VIDEO_ID, {
-        method: "POST",
-        headers: headers(),
-        body: reader.result,
-      })
-        .then(r => r.json())
-        .then(data => {
-          setStatus("Imported " + data.imported + " annotations");
-          loadAnnotationsForFrame(currentFrame);
-        })
-        .catch(() => setStatus("Import failed"));
+      showImportModal(reader.result);
     };
     reader.readAsText(file);
     importInput.value = "";
   });
+
+  /* ---------- import helpers ---------- */
+
+  function clearAllAnnotations() {
+    return fetch("/api/annotations/clear/?image_id=" + VIDEO_ID, {
+      method: "DELETE",
+      headers: headers(),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        bboxes = [];
+        allAnnotations = [];
+        updateCount();
+        draw();
+        renderAnnotationPanel();
+        return data;
+      });
+  }
+
+  function doImport(fileContent) {
+    fetch("/api/import/?video_id=" + VIDEO_ID, {
+      method: "POST",
+      headers: headers(),
+      body: fileContent,
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        setStatus("Imported " + data.imported + " annotations");
+        loadAnnotationsForFrame(currentFrame);
+        loadAllAnnotations();
+      })
+      .catch(function () { setStatus("Import failed"); });
+  }
+
+  function exportToFile() {
+    return fetch("/api/export/" + VIDEO_ID + "/", { headers: headers() })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var jsonStr = JSON.stringify(data, null, 2);
+        var defaultName = "annotations_" + VIDEO_ID + ".json";
+
+        if (typeof window.showSaveFilePicker === "function") {
+          return window.showSaveFilePicker({
+            suggestedName: defaultName,
+            types: [{
+              description: "COCO JSON",
+              accept: { "application/json": [".json"] },
+            }],
+          }).then(function (handle) {
+            return handle.createWritable().then(function (writable) {
+              return writable.write(jsonStr).then(function () {
+                return writable.close();
+              });
+            });
+          });
+        } else {
+          var blob = new Blob([jsonStr], { type: "application/json" });
+          var a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = defaultName;
+          a.click();
+          URL.revokeObjectURL(a.href);
+          return Promise.resolve();
+        }
+      });
+  }
+
+  function hideImportModal() {
+    if (importModal) importModal.classList.add("hidden");
+  }
+
+  function showImportModal(fileContent) {
+    if (allAnnotations.length === 0) {
+      doImport(fileContent);
+      return;
+    }
+
+    importModal.classList.remove("hidden");
+
+    modalSave.addEventListener("click", function () {
+      exportToFile().then(function () {
+        setStatus("Saved — now replacing annotations…");
+        return clearAllAnnotations();
+      }).then(function () {
+        hideImportModal();
+        doImport(fileContent);
+      }).catch(function (err) {
+        if (err.name === "AbortError") return; // user cancelled save picker — stay on modal
+        hideImportModal();
+        setStatus("Export failed");
+      });
+    }, { once: true });
+
+    modalDiscard.addEventListener("click", function () {
+      clearAllAnnotations().then(function () {
+        hideImportModal();
+        doImport(fileContent);
+      }).catch(function () {
+        hideImportModal();
+        setStatus("Error clearing annotations");
+      });
+    }, { once: true });
+
+    modalCancel.addEventListener("click", function () {
+      hideImportModal();
+    }, { once: true });
+  }
 
   /* ---------- frame navigation ---------- */
 
@@ -325,6 +702,20 @@
 
   nextFrameBtn.addEventListener("click", function () {
     if (currentFrame < totalFrames - 1) goToFrame(currentFrame + 1);
+  });
+
+  playPauseBtn.addEventListener("click", function () {
+    togglePlayback();
+  });
+
+  fpsSelect.addEventListener("change", function () {
+    var newFps = parseFloat(fpsSelect.value);
+    if (isNaN(newFps) || newFps <= 0) return;
+    fps = newFps;
+    frameDuration = 1000 / fps;
+    if (playing) {
+      lastFrameTime = performance.now();
+    }
   });
 
   frameSlider.addEventListener("input", function () {
@@ -339,7 +730,10 @@
 
   document.addEventListener("keydown", function (e) {
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-    if (e.key === "ArrowLeft") {
+    if (e.key === " " || e.code === "Space") {
+      e.preventDefault();
+      togglePlayback();
+    } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       if (currentFrame > 0) goToFrame(currentFrame - 1);
     } else if (e.key === "ArrowRight") {
@@ -372,6 +766,7 @@
       updateCount();
       draw();
       setStatus("Ready — draw bounding boxes on the frame");
+      loadAllAnnotations();
     };
     img.src = FRAME_URL;
   }

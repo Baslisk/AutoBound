@@ -1,0 +1,61 @@
+{
+  "images": [
+    {
+      "id": 2,
+      "file_name": "DJI_0023.MP4",
+      "width": 3840,
+      "height": 2160
+    }
+  ],
+  "annotations": [
+    {
+      "id": 10,
+      "image_id": 2,
+      "category_id": 1,
+      "bbox": [
+        1881,
+        1008,
+        805,
+        503
+      ],
+      "area": 404915,
+      "iscrowd": 0,
+      "frame_number": 0
+    },
+    {
+      "id": 11,
+      "image_id": 2,
+      "category_id": 1,
+      "bbox": [
+        2096,
+        1067,
+        731,
+        581
+      ],
+      "area": 424711,
+      "iscrowd": 0,
+      "frame_number": 1
+    },
+    {
+      "id": 12,
+      "image_id": 2,
+      "category_id": 1,
+      "bbox": [
+        2096,
+        1314,
+        581,
+        640
+      ],
+      "area": 371840,
+      "iscrowd": 0,
+      "frame_number": 2
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "object",
+      "supercategory": "none"
+    }
+  ]
+}

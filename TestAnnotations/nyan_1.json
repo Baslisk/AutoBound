@@ -1,0 +1,145 @@
+{
+  "images": [
+    {
+      "id": 1,
+      "file_name": "nyan.mp4",
+      "width": 640,
+      "height": 640
+    }
+  ],
+  "annotations": [
+    {
+      "id": 1,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        242,
+        166,
+        293,
+        155
+      ],
+      "area": 45415,
+      "iscrowd": 0,
+      "frame_number": 0
+    },
+    {
+      "id": 2,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        352,
+        329,
+        30,
+        24
+      ],
+      "area": 720,
+      "iscrowd": 0,
+      "frame_number": 0
+    },
+    {
+      "id": 3,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        418,
+        326,
+        30,
+        24
+      ],
+      "area": 720,
+      "iscrowd": 0,
+      "frame_number": 0
+    },
+    {
+      "id": 4,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        210,
+        374,
+        41,
+        44
+      ],
+      "area": 1804,
+      "iscrowd": 0,
+      "frame_number": 0
+    },
+    {
+      "id": 5,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        272,
+        371,
+        25,
+        51
+      ],
+      "area": 1275,
+      "iscrowd": 0,
+      "frame_number": 0
+    },
+    {
+      "id": 6,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        358,
+        382,
+        33,
+        33
+      ],
+      "area": 1089,
+      "iscrowd": 0,
+      "frame_number": 0
+    },
+    {
+      "id": 7,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        402,
+        377,
+        32,
+        37
+      ],
+      "area": 1184,
+      "iscrowd": 0,
+      "frame_number": 0
+    },
+    {
+      "id": 8,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        304,
+        406,
+        101,
+        63
+      ],
+      "area": 6363,
+      "iscrowd": 0,
+      "frame_number": 1
+    },
+    {
+      "id": 9,
+      "image_id": 1,
+      "category_id": 1,
+      "bbox": [
+        568,
+        144,
+        61,
+        61
+      ],
+      "area": 3721,
+      "iscrowd": 0,
+      "frame_number": 1
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "object",
+      "supercategory": "none"
+    }
+  ]
+}
