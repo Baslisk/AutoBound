@@ -148,6 +148,61 @@ class ExportImportCOCOTest(TestCase):
         self.assertEqual(resp.json()["imported"], 2)
         self.assertTrue(VideoFile.objects.filter(file_name="imported.mp4").exists())
 
+    def test_import_preserves_frame_number(self):
+        coco = {
+            "images": [{"id": 1, "file_name": "frames.mp4", "width": 320, "height": 240}],
+            "annotations": [
+                {"image_id": 1, "category_id": 1, "bbox": [1, 2, 3, 4], "frame_number": 5},
+                {"image_id": 1, "category_id": 1, "bbox": [5, 6, 7, 8], "frame_number": 12},
+                {"image_id": 1, "category_id": 1, "bbox": [9, 10, 11, 12]},
+            ],
+        }
+        resp = self.client.post(
+            "/api/import/",
+            data=json.dumps(coco),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["imported"], 3)
+        video = VideoFile.objects.get(file_name="frames.mp4")
+        anns = list(video.annotations.order_by("bbox_x"))
+        self.assertEqual(anns[0].frame_number, 5)
+        self.assertEqual(anns[1].frame_number, 12)
+        self.assertEqual(anns[2].frame_number, 0)  # default
+
+    def test_import_with_video_id(self):
+        """Import scoped to an existing video via ?video_id= query param."""
+        coco = {
+            "images": [{"id": 99, "file_name": "other_name.mp4", "width": 100, "height": 100}],
+            "annotations": [
+                {"image_id": 99, "category_id": 1, "bbox": [111, 222, 30, 40]},
+            ],
+        }
+        resp = self.client.post(
+            f"/api/import/?video_id={self.video.pk}",
+            data=json.dumps(coco),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["imported"], 1)
+        # Annotation attached to the existing video, not a new one
+        ann = Annotation.objects.get(bbox_x=111, bbox_y=222)
+        self.assertEqual(ann.image_id, self.video.pk)
+        # No new VideoFile created for "other_name.mp4"
+        self.assertFalse(VideoFile.objects.filter(file_name="other_name.mp4").exists())
+
+    def test_import_with_invalid_video_id(self):
+        coco = {
+            "images": [{"id": 1, "file_name": "x.mp4", "width": 10, "height": 10}],
+            "annotations": [],
+        }
+        resp = self.client.post(
+            "/api/import/?video_id=99999",
+            data=json.dumps(coco),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 404)
+
     def test_import_invalid_json(self):
         resp = self.client.post(
             "/api/import/",

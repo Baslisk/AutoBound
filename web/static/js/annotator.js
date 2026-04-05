@@ -30,6 +30,32 @@
   let totalFrames = FRAME_COUNT || 0;
   let loadingFrame = false;
 
+  /* ---------- frame cache (client-side LRU) ---------- */
+
+  var frameCacheMax = 32;
+  var frameCacheMap = new Map(); // frame_number -> Image (decoded & ready)
+
+  function frameCacheGet(n) {
+    if (!frameCacheMap.has(n)) return null;
+    var img = frameCacheMap.get(n);
+    // Move to end (most-recently-used)
+    frameCacheMap.delete(n);
+    frameCacheMap.set(n, img);
+    return img;
+  }
+
+  function frameCacheSet(n, image) {
+    if (frameCacheMap.has(n)) frameCacheMap.delete(n);
+    frameCacheMap.set(n, image);
+    // Evict oldest if over limit
+    while (frameCacheMap.size > frameCacheMax) {
+      var oldest = frameCacheMap.keys().next().value;
+      frameCacheMap.delete(oldest);
+    }
+  }
+
+  var sliderDebounceTimer = null;
+
   /* ---------- helpers ---------- */
 
   function setStatus(msg) { statusBar.textContent = msg; }
@@ -101,16 +127,24 @@
       .catch(function () { setStatus("Error loading annotations"); });
   }
 
-  function goToFrame(frameNum) {
-    if (loadingFrame) return;
-    if (frameNum < 0 || frameNum >= totalFrames) return;
-    if (frameNum === currentFrame && img.complete && img.src) {
-      return;
-    }
+  function applyFrame(image, frameNum) {
+    img = image;
+    currentFrame = frameNum;
+    loadingFrame = false;
 
-    loadingFrame = true;
-    setStatus("Loading frame " + (frameNum + 1) + "…");
+    var area = canvas.parentElement;
+    var maxW = area.clientWidth - 2;
+    var maxH = area.clientHeight - 2;
+    scale = Math.min(maxW / IMG_WIDTH, maxH / IMG_HEIGHT, 1);
+    canvas.width = Math.round(IMG_WIDTH * scale);
+    canvas.height = Math.round(IMG_HEIGHT * scale);
 
+    updateFrameUI();
+    loadAnnotationsForFrame(frameNum);
+    setStatus("Frame " + (frameNum + 1) + " of " + totalFrames);
+  }
+
+  function fetchFrameImage(frameNum, cb) {
     fetch("/api/frame/" + VIDEO_ID + "/" + frameNum + "/", {
       headers: headers(),
     })
@@ -119,20 +153,8 @@
         if (data.frame) {
           var newImg = new Image();
           newImg.onload = function () {
-            img = newImg;
-            currentFrame = frameNum;
-            loadingFrame = false;
-
-            var area = canvas.parentElement;
-            var maxW = area.clientWidth - 2;
-            var maxH = area.clientHeight - 2;
-            scale = Math.min(maxW / IMG_WIDTH, maxH / IMG_HEIGHT, 1);
-            canvas.width = Math.round(IMG_WIDTH * scale);
-            canvas.height = Math.round(IMG_HEIGHT * scale);
-
-            updateFrameUI();
-            loadAnnotationsForFrame(frameNum);
-            setStatus("Frame " + (frameNum + 1) + " of " + totalFrames);
+            frameCacheSet(frameNum, newImg);
+            if (cb) cb(newImg);
           };
           newImg.src = "data:image/jpeg;base64," + data.frame;
 
@@ -141,14 +163,48 @@
             frameSlider.max = totalFrames - 1;
           }
         } else {
-          loadingFrame = false;
-          setStatus("Error loading frame");
+          if (cb) cb(null);
         }
       })
-      .catch(function () {
+      .catch(function () { if (cb) cb(null); });
+  }
+
+  function prefetchFrames(center) {
+    for (var d = -3; d <= 3; d++) {
+      var n = center + d;
+      if (n >= 0 && n < totalFrames && !frameCacheMap.has(n)) {
+        fetchFrameImage(n, null);
+      }
+    }
+  }
+
+  function goToFrame(frameNum) {
+    if (loadingFrame) return;
+    if (frameNum < 0 || frameNum >= totalFrames) return;
+    if (frameNum === currentFrame && img.complete && img.src) {
+      return;
+    }
+
+    // Check client-side cache first
+    var cached = frameCacheGet(frameNum);
+    if (cached) {
+      applyFrame(cached, frameNum);
+      prefetchFrames(frameNum);
+      return;
+    }
+
+    loadingFrame = true;
+    setStatus("Loading frame " + (frameNum + 1) + "…");
+
+    fetchFrameImage(frameNum, function (image) {
+      if (image) {
+        applyFrame(image, frameNum);
+        prefetchFrames(frameNum);
+      } else {
         loadingFrame = false;
         setStatus("Error loading frame");
-      });
+      }
+    });
   }
 
   /* ---------- mouse events ---------- */
@@ -245,15 +301,15 @@
     if (!file) return;
     const reader = new FileReader();
     reader.onload = function () {
-      fetch("/api/import/", {
+      fetch("/api/import/?video_id=" + VIDEO_ID, {
         method: "POST",
         headers: headers(),
         body: reader.result,
       })
         .then(r => r.json())
         .then(data => {
-          setStatus("Imported " + data.imported + " annotations — reloading…");
-          setTimeout(() => location.reload(), 500);
+          setStatus("Imported " + data.imported + " annotations");
+          loadAnnotationsForFrame(currentFrame);
         })
         .catch(() => setStatus("Import failed"));
     };
@@ -272,10 +328,13 @@
   });
 
   frameSlider.addEventListener("input", function () {
-    var target = parseInt(frameSlider.value, 10);
-    if (!isNaN(target) && target !== currentFrame) {
-      goToFrame(target);
-    }
+    if (sliderDebounceTimer) clearTimeout(sliderDebounceTimer);
+    sliderDebounceTimer = setTimeout(function () {
+      var target = parseInt(frameSlider.value, 10);
+      if (!isNaN(target) && target !== currentFrame) {
+        goToFrame(target);
+      }
+    }, 100);
   });
 
   document.addEventListener("keydown", function (e) {
