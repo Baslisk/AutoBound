@@ -18,6 +18,7 @@ class VideoFile(models.Model):
     file = models.FileField(upload_to="videos/", blank=True, null=True)
     width = models.PositiveIntegerField()
     height = models.PositiveIntegerField()
+    frame_count = models.PositiveIntegerField(default=0)
     frame_image = models.ImageField(upload_to="frames/", blank=True, null=True)
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -50,6 +51,7 @@ class Annotation(models.Model):
         default=1,
         related_name="annotations",
     )
+    frame_number = models.PositiveIntegerField(default=0)
     bbox_x = models.FloatField()
     bbox_y = models.FloatField()
     bbox_w = models.FloatField()
@@ -81,4 +83,5 @@ class Annotation(models.Model):
             "bbox": self.bbox,
             "area": self.area,
             "iscrowd": int(self.iscrowd),
+            "frame_number": self.frame_number,
         }

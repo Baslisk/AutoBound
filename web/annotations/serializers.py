@@ -23,6 +23,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
         model = Annotation
         fields = [
             "id", "image", "category", "bbox_x", "bbox_y",
-            "bbox_w", "bbox_h", "area", "iscrowd",
+            "bbox_w", "bbox_h", "area", "iscrowd", "frame_number",
         ]
         read_only_fields = ["id", "area"]

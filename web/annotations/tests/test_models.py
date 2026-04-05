@@ -31,6 +31,16 @@ class VideoFileModelTest(TestCase):
         self.assertEqual(d["height"], 1080)
         self.assertEqual(d["id"], self.video.pk)
 
+    def test_frame_count_default(self):
+        self.assertEqual(self.video.frame_count, 0)
+
+    def test_frame_count_custom(self):
+        video = VideoFile.objects.create(
+            file_name="clip.mp4", width=640, height=480,
+            frame_count=120, uploaded_by=self.user,
+        )
+        self.assertEqual(video.frame_count, 120)
+
 
 class AnnotationModelTest(TestCase):
     def setUp(self):
@@ -61,6 +71,19 @@ class AnnotationModelTest(TestCase):
         self.assertEqual(d["bbox"], [10, 20, 100, 50])
         self.assertEqual(d["area"], 5000.0)
         self.assertEqual(d["iscrowd"], 0)
+        self.assertEqual(d["frame_number"], 0)
+
+    def test_frame_number_default(self):
+        self.assertEqual(self.ann.frame_number, 0)
+
+    def test_frame_number_custom(self):
+        ann = Annotation.objects.create(
+            image=self.video, category=self.cat,
+            bbox_x=5, bbox_y=5, bbox_w=20, bbox_h=20,
+            frame_number=42, created_by=self.user,
+        )
+        self.assertEqual(ann.frame_number, 42)
+        self.assertEqual(ann.to_coco_dict()["frame_number"], 42)
 
     def test_iscrowd_flag(self):
         ann = Annotation.objects.create(
