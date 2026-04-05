@@ -2,7 +2,7 @@ import os.path
 import sys
 import platform
 import tkinter
-from tkinter import Tk, Frame, Menu, StringVar
+from tkinter import Tk, Frame, Menu, StringVar, Canvas
 import webbrowser
 import cv2
 import ctypes
@@ -18,7 +18,9 @@ from customtkinter import (CTk,
                            filedialog, 
                            set_appearance_mode,
                            set_default_color_theme)
-from PIL import Image
+from PIL import Image, ImageTk
+
+from annotation_store import AnnotationStore
 
 # Windows Mica effect constants and function
 DWMWA_SYSTEMBACKDROP_TYPE = 38
@@ -54,6 +56,18 @@ supported_file_extensions = ['.mp4', '.MP4',
                             '.mov', '.MOV',
                             '.qt', '.3gp', 
                             '.mpg', '.mpeg']
+
+# Annotation store (COCO format) ------
+
+annotation_store = AnnotationStore()
+
+# Bounding box drawing state
+bbox_start_x = 0
+bbox_start_y = 0
+bbox_rect_id = None
+bbox_canvas  = None
+bbox_photo   = None
+current_image_id = None
 
 # Classes and utils -------------------
 
@@ -182,6 +196,22 @@ def open_file():
 def save_file():
     print("save file")
 
+def save_annotations_action():
+    """Save all in-memory bounding box annotations to a COCO JSON file."""
+    if len(annotation_store.annotations) == 0:
+        info_message.set("No annotations to save")
+        return
+
+    filepath = filedialog.asksaveasfilename(
+        defaultextension=".json",
+        filetypes=[("COCO JSON", "*.json")],
+        title="Save Annotations (COCO format)",
+    )
+    if filepath:
+        annotation_store.save_to_file(filepath)
+        info_message.set("Annotations saved to " + os.path.basename(filepath))
+        print("> Saved " + str(len(annotation_store.annotations)) + " annotations to " + filepath)
+
 def exit_app():
     exit()
 
@@ -222,10 +252,97 @@ def open_files_action():
                                                 file_element = actual_file)
             remove_file("temp.jpg")
     
-        info_message.set("Ready")
+        info_message.set("Ready  |  Click a video label to annotate, or use File > Save Annotations")
+
+        # Open the first video on the annotation canvas automatically
+        show_frame_with_canvas(supported_files_list[0])
+        place_save_annotations_button()
 
     else: 
         info_message.set("Not supported files :(")
+
+# Bounding box drawing callbacks ------
+
+def on_bbox_mouse_press(event):
+    """Record the starting corner of a new bounding box."""
+    global bbox_start_x, bbox_start_y, bbox_rect_id
+    bbox_start_x = event.x
+    bbox_start_y = event.y
+    bbox_rect_id = bbox_canvas.create_rectangle(
+        bbox_start_x, bbox_start_y, bbox_start_x, bbox_start_y,
+        outline="#00FF00", width=2
+    )
+
+def on_bbox_mouse_drag(event):
+    """Update the rectangle as the user drags the mouse."""
+    if bbox_rect_id is not None:
+        bbox_canvas.coords(bbox_rect_id,
+                           bbox_start_x, bbox_start_y,
+                           event.x, event.y)
+
+def on_bbox_mouse_release(event):
+    """Finalize the bounding box and save it to the annotation store."""
+    global bbox_rect_id, current_image_id
+    if bbox_rect_id is None:
+        return
+
+    x1 = min(bbox_start_x, event.x)
+    y1 = min(bbox_start_y, event.y)
+    x2 = max(bbox_start_x, event.x)
+    y2 = max(bbox_start_y, event.y)
+    w  = x2 - x1
+    h  = y2 - y1
+
+    if w > 2 and h > 2 and current_image_id is not None:
+        annotation_store.add_annotation(current_image_id, [x1, y1, w, h])
+        count = len(annotation_store.get_annotations_for_image(current_image_id))
+        info_message.set("Bounding box saved  |  Total: " + str(count))
+        print("> Added bbox [" + str(x1) + ", " + str(y1) + ", " + str(w) + ", " + str(h) + "]")
+    else:
+        # Too small – remove the drawn rectangle
+        bbox_canvas.delete(bbox_rect_id)
+
+    bbox_rect_id = None
+
+def show_frame_with_canvas(video_file):
+    """Display the first frame of a video on a canvas for bounding box annotation."""
+    global bbox_canvas, bbox_photo, current_image_id
+
+    cap = cv2.VideoCapture(video_file)
+    width  = round(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = round(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    video_name = str(video_file.split("/")[-1])
+
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        info_message.set("Could not read video frame")
+        return
+
+    current_image_id = annotation_store.add_image(video_name, width, height)
+
+    # Scale frame to fit within canvas area
+    canvas_w, canvas_h = 600, 400
+    scale = min(canvas_w / width, canvas_h / height, 1.0)
+    display_w = int(width * scale)
+    display_h = int(height * scale)
+
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    pil_image = Image.fromarray(frame_rgb).resize((display_w, display_h), Image.LANCZOS)
+    bbox_photo = ImageTk.PhotoImage(pil_image)
+
+    place_up_background()
+
+    bbox_canvas = Canvas(window, width=display_w, height=display_h,
+                         bg="#080808", highlightthickness=0)
+    bbox_canvas.place(relx=0.5, rely=0.35, anchor=tkinter.CENTER)
+    bbox_canvas.create_image(0, 0, anchor=tkinter.NW, image=bbox_photo)
+
+    bbox_canvas.bind("<ButtonPress-1>", on_bbox_mouse_press)
+    bbox_canvas.bind("<B1-Motion>", on_bbox_mouse_drag)
+    bbox_canvas.bind("<ButtonRelease-1>", on_bbox_mouse_release)
+
+    info_message.set("Draw bounding boxes on the frame  |  " + video_name)
 
 # UI Elements -------------------------
 
@@ -234,6 +351,7 @@ def place_menu():
     m1 = Menu(menu_bar, tearoff=0)
     m1.add_command(label="Open File",command=open_files_action)
     m1.add_command(label="Save File",command=save_file)
+    m1.add_command(label="Save Annotations",command=save_annotations_action)
     m1.add_separator()
     m1.add_command(label="Exit",command=exit_app)
     menu_bar.add_cascade(label="File",menu=m1)
@@ -313,6 +431,19 @@ def place_github_button():
                             image      = logo_git,
                             command    = opengithub)
     git_button.place(relx = 0.045, rely = 0.61, anchor = tkinter.CENTER)
+
+def place_save_annotations_button():
+    save_btn = CTkButton(master  = window,
+                         width   = 180,
+                         height  = 30,
+                         text    = "SAVE ANNOTATIONS",
+                         font    = bold11,
+                         fg_color   = "#28a745",
+                         text_color = "#FFFFFF",
+                         border_spacing = 0,
+                         corner_radius  = 25,
+                         command = save_annotations_action)
+    save_btn.place(relx = 0.5, rely = 0.6, anchor = tkinter.CENTER)
 
 def place_message_label():
     message_label = CTkLabel(master  = window, 
