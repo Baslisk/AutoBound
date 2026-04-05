@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Annotate — {{ video.file_name }}{% endblock %}
+
+{% block content %}
+<div class="annotate-layout">
+  <aside class="sidebar">
+    <h3>{{ video.file_name }}</h3>
+    <p class="meta">{{ video.width }}×{{ video.height }}</p>
+
+    <div class="tool-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="showBboxes" checked>
+        <span>Show Bounding Boxes</span>
+      </label>
+    </div>
+
+    <div class="tool-group">
+      <button class="btn btn-green btn-block" id="saveBtn">Save Annotations</button>
+      <button class="btn btn-block" id="exportBtn">Export COCO JSON</button>
+      <button class="btn btn-red btn-block" id="clearBtn">Clear All</button>
+    </div>
+
+    <div class="tool-group">
+      <label class="btn btn-block btn-file">
+        Import COCO JSON
+        <input type="file" id="importInput" accept=".json" hidden>
+      </label>
+    </div>
+
+    <div id="statusBar" class="status-bar">Ready</div>
+    <div id="bboxCount" class="bbox-count">0 annotations</div>
+  </aside>
+
+  <div class="canvas-area">
+    <canvas id="annotationCanvas"></canvas>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const VIDEO_ID = {{ video.id }};
+  const FRAME_URL = "{{ frame_url }}";
+  const INITIAL_ANNOTATIONS = {{ annotations_json|safe }};
+  const CSRF_TOKEN = "{{ csrf_token }}";
+  const IMG_WIDTH = {{ video.width }};
+  const IMG_HEIGHT = {{ video.height }};
+</script>
+<script src="{% static 'js/annotator.js' %}"></script>
+{% endblock %}

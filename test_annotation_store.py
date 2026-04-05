@@ -56,6 +56,78 @@ class TestAnnotationStore(unittest.TestCase):
         self.assertEqual(self.store.annotations[0]["category_id"], 5)
 
     # ------------------------------------------------------------------
+    # Saved flag
+    # ------------------------------------------------------------------
+
+    def test_new_annotation_is_unsaved(self):
+        img_id = self.store.add_image("img.jpg", 100, 100)
+        self.store.add_annotation(img_id, [0, 0, 10, 10])
+        self.assertFalse(self.store.annotations[0]["saved"])
+
+    def test_has_unsaved_annotations_true_for_new(self):
+        img_id = self.store.add_image("img.jpg", 100, 100)
+        self.store.add_annotation(img_id, [0, 0, 10, 10])
+        self.assertTrue(self.store.has_unsaved_annotations())
+
+    def test_has_unsaved_annotations_false_when_empty(self):
+        self.assertFalse(self.store.has_unsaved_annotations())
+
+    def test_mark_all_saved(self):
+        img_id = self.store.add_image("img.jpg", 100, 100)
+        self.store.add_annotation(img_id, [0, 0, 10, 10])
+        self.store.add_annotation(img_id, [5, 5, 20, 20])
+        self.store.mark_all_saved()
+        for ann in self.store.annotations:
+            self.assertTrue(ann["saved"])
+        self.assertFalse(self.store.has_unsaved_annotations())
+
+    def test_has_unsaved_after_mark_then_add(self):
+        img_id = self.store.add_image("img.jpg", 100, 100)
+        self.store.add_annotation(img_id, [0, 0, 10, 10])
+        self.store.mark_all_saved()
+        self.store.add_annotation(img_id, [5, 5, 20, 20])
+        self.assertTrue(self.store.has_unsaved_annotations())
+
+    def test_to_coco_excludes_saved_field(self):
+        img_id = self.store.add_image("img.jpg", 100, 100)
+        self.store.add_annotation(img_id, [0, 0, 10, 10])
+        coco = self.store.to_coco()
+        for ann in coco["annotations"]:
+            self.assertNotIn("saved", ann)
+
+    def test_save_to_file_marks_as_saved(self):
+        img_id = self.store.add_image("img.jpg", 100, 100)
+        self.store.add_annotation(img_id, [0, 0, 10, 10])
+        self.assertTrue(self.store.has_unsaved_annotations())
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            self.store.save_to_file(tmp_path)
+            self.assertFalse(self.store.has_unsaved_annotations())
+            for ann in self.store.annotations:
+                self.assertTrue(ann["saved"])
+        finally:
+            os.unlink(tmp_path)
+
+    def test_load_from_file_marks_as_saved(self):
+        img_id = self.store.add_image("img.jpg", 100, 100)
+        self.store.add_annotation(img_id, [0, 0, 10, 10])
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            self.store.save_to_file(tmp_path)
+
+            new_store = AnnotationStore()
+            new_store.load_from_file(tmp_path)
+            self.assertFalse(new_store.has_unsaved_annotations())
+            for ann in new_store.annotations:
+                self.assertTrue(ann["saved"])
+        finally:
+            os.unlink(tmp_path)
+
+    # ------------------------------------------------------------------
     # Annotation removal
     # ------------------------------------------------------------------
 
@@ -163,6 +235,142 @@ class TestAnnotationStore(unittest.TestCase):
         # Ids should reset
         new_id = self.store.add_image("new.jpg", 50, 50)
         self.assertEqual(new_id, 1)
+
+    def test_clear_resets_annotation_counter(self):
+        img_id = self.store.add_image("img.jpg", 100, 100)
+        self.store.add_annotation(img_id, [0, 0, 10, 10])
+        self.store.add_annotation(img_id, [5, 5, 20, 20])
+        self.store.clear()
+
+        new_img_id = self.store.add_image("new.jpg", 50, 50)
+        new_ann_id = self.store.add_annotation(new_img_id, [1, 1, 5, 5])
+        self.assertEqual(new_img_id, 1)
+        self.assertEqual(new_ann_id, 1)
+
+    def test_clear_allows_full_reuse(self):
+        """After clearing, the store should behave like a fresh instance."""
+        img_id = self.store.add_image("old.jpg", 640, 480)
+        self.store.add_annotation(img_id, [10, 10, 50, 50])
+        self.store.clear()
+
+        self.assertEqual(self.store.to_coco()["images"], [])
+        self.assertEqual(self.store.to_coco()["annotations"], [])
+
+        new_id = self.store.add_image("fresh.jpg", 320, 240)
+        ann_id = self.store.add_annotation(new_id, [0, 0, 30, 30])
+        self.assertEqual(len(self.store.images), 1)
+        self.assertEqual(len(self.store.annotations), 1)
+        self.assertEqual(new_id, 1)
+        self.assertEqual(ann_id, 1)
+
+    # ------------------------------------------------------------------
+    # Load from file
+    # ------------------------------------------------------------------
+
+    def test_load_from_file_restores_data(self):
+        img_id = self.store.add_image("vid.mp4", 1920, 1080)
+        self.store.add_annotation(img_id, [10, 20, 30, 40])
+        self.store.add_annotation(img_id, [50, 60, 70, 80])
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            self.store.save_to_file(tmp_path)
+
+            new_store = AnnotationStore()
+            new_store.load_from_file(tmp_path)
+
+            self.assertEqual(len(new_store.images), 1)
+            self.assertEqual(new_store.images[0]["file_name"], "vid.mp4")
+            self.assertEqual(len(new_store.annotations), 2)
+            self.assertEqual(new_store.annotations[0]["bbox"], [10, 20, 30, 40])
+            self.assertEqual(new_store.annotations[1]["bbox"], [50, 60, 70, 80])
+        finally:
+            os.unlink(tmp_path)
+
+    def test_load_from_file_updates_id_counters(self):
+        img_id = self.store.add_image("img.jpg", 100, 100)
+        self.store.add_annotation(img_id, [0, 0, 10, 10])
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            self.store.save_to_file(tmp_path)
+
+            new_store = AnnotationStore()
+            new_store.load_from_file(tmp_path)
+
+            # New ids should not collide with loaded ones
+            new_img_id = new_store.add_image("img2.jpg", 200, 200)
+            self.assertGreater(new_img_id, img_id)
+
+            new_ann_id = new_store.add_annotation(new_img_id, [5, 5, 15, 15])
+            self.assertGreater(new_ann_id, 1)
+        finally:
+            os.unlink(tmp_path)
+
+    def test_load_from_file_replaces_existing_data(self):
+        self.store.add_image("old.jpg", 50, 50)
+
+        other = AnnotationStore()
+        img_id = other.add_image("new.jpg", 640, 480)
+        other.add_annotation(img_id, [1, 2, 3, 4])
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            other.save_to_file(tmp_path)
+            self.store.load_from_file(tmp_path)
+
+            self.assertEqual(len(self.store.images), 1)
+            self.assertEqual(self.store.images[0]["file_name"], "new.jpg")
+        finally:
+            os.unlink(tmp_path)
+
+    def test_load_from_file_missing_file_raises(self):
+        with self.assertRaises(FileNotFoundError):
+            self.store.load_from_file("/nonexistent/path.json")
+
+    def test_load_from_file_invalid_json_raises(self):
+        with tempfile.NamedTemporaryFile(
+            suffix=".json", delete=False, mode="w"
+        ) as tmp:
+            tmp.write("not json")
+            tmp_path = tmp.name
+
+        try:
+            with self.assertRaises(json.JSONDecodeError):
+                self.store.load_from_file(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+
+    def test_load_from_file_empty_annotations(self):
+        """Loading a file with images but no annotations should work."""
+        data = {
+            "images": [{"id": 1, "file_name": "empty.jpg",
+                         "width": 100, "height": 100}],
+            "annotations": [],
+            "categories": [{"id": 1, "name": "object",
+                            "supercategory": "none"}],
+        }
+        with tempfile.NamedTemporaryFile(
+            suffix=".json", delete=False, mode="w"
+        ) as tmp:
+            json.dump(data, tmp)
+            tmp_path = tmp.name
+
+        try:
+            self.store.load_from_file(tmp_path)
+            self.assertEqual(len(self.store.images), 1)
+            self.assertEqual(len(self.store.annotations), 0)
+            # Counter should still allow new annotations starting at 1
+            ann_id = self.store.add_annotation(1, [0, 0, 5, 5])
+            self.assertEqual(ann_id, 1)
+        finally:
+            os.unlink(tmp_path)
 
 
 if __name__ == "__main__":
