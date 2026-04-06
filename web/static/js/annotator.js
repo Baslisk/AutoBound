@@ -1226,6 +1226,9 @@
       renderCategoryList();
     };
     img.src = FRAME_URL;
+
+    // Render categories immediately (doesn't depend on image)
+    renderCategoryList();
   }
 
   init();
