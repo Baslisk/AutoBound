@@ -12,4 +12,6 @@ urlpatterns = [
     path("export/<int:video_id>/", api.export_coco, name="api_export_coco"),
     path("import/", api.import_coco, name="api_import_coco"),
     path("frame/<int:video_id>/<int:frame_number>/", api.get_frame, name="api_get_frame"),
+    path("predict/", api.predict_annotation, name="api_predict"),
+    path("track/", api.track_annotation, name="api_track"),
 ]

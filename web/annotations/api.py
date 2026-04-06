@@ -133,6 +133,107 @@ def clear_annotations(request):
     return Response({"deleted": deleted})
 
 
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def predict_annotation(request):
+    """Run object-tracking prediction from a given annotation to the next frame.
+
+    Request body (JSON):
+        video_id (int): ID of the VideoFile.
+        frame_number (int): Current frame number to predict *from*.
+        annotation_id (int): ID of the annotation whose bbox is the seed.
+
+    Response body:
+        success (bool): Whether tracking succeeded.
+        predicted_bbox (list[float] | null): [x, y, w, h] in original coords.
+        next_frame (int): frame_number + 1.
+    """
+    video_id = request.data.get("video_id")
+    frame_number = request.data.get("frame_number")
+    annotation_id = request.data.get("annotation_id")
+
+    if video_id is None or frame_number is None or annotation_id is None:
+        return Response(
+            {"detail": "video_id, frame_number, and annotation_id are required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        video = VideoFile.objects.get(pk=video_id, uploaded_by=request.user)
+    except VideoFile.DoesNotExist:
+        return Response({"detail": "Video not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        annotation = Annotation.objects.get(pk=annotation_id, image=video, created_by=request.user)
+    except Annotation.DoesNotExist:
+        return Response({"detail": "Annotation not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not video.file:
+        return Response({"detail": "No video file on server."}, status=status.HTTP_404_NOT_FOUND)
+
+    from prediction_engine import predict_next_frame  # noqa: PLC0415
+
+    bbox = [annotation.bbox_x, annotation.bbox_y, annotation.bbox_w, annotation.bbox_h]
+    success, predicted_bbox = predict_next_frame(video.file.path, int(frame_number), bbox)
+
+    return Response({
+        "success": success,
+        "predicted_bbox": predicted_bbox,
+        "next_frame": int(frame_number) + 1,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def track_annotation(request):
+    """Track an object through all subsequent frames until failure or video end.
+
+    Request body (JSON):
+        video_id (int): ID of the VideoFile.
+        start_frame (int): Frame number of the seed annotation.
+        annotation_id (int): ID of the annotation whose bbox is the seed.
+        max_frames (int, optional): Maximum frames to track. 0 = no limit.
+
+    Response body:
+        results (list): [{"frame_number": int, "bbox": [x, y, w, h]}, ...]
+        tracked_frames (int): Number of frames successfully tracked.
+    """
+    video_id = request.data.get("video_id")
+    start_frame = request.data.get("start_frame")
+    annotation_id = request.data.get("annotation_id")
+
+    if video_id is None or start_frame is None or annotation_id is None:
+        return Response(
+            {"detail": "video_id, start_frame, and annotation_id are required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    max_frames = int(request.data.get("max_frames", 0))
+
+    try:
+        video = VideoFile.objects.get(pk=video_id, uploaded_by=request.user)
+    except VideoFile.DoesNotExist:
+        return Response({"detail": "Video not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        annotation = Annotation.objects.get(pk=annotation_id, image=video, created_by=request.user)
+    except Annotation.DoesNotExist:
+        return Response({"detail": "Annotation not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not video.file:
+        return Response({"detail": "No video file on server."}, status=status.HTTP_404_NOT_FOUND)
+
+    from prediction_engine import track_object  # noqa: PLC0415
+
+    bbox = [annotation.bbox_x, annotation.bbox_y, annotation.bbox_w, annotation.bbox_h]
+    results = track_object(video.file.path, int(start_frame), bbox, max_frames)
+
+    return Response({
+        "results": results,
+        "tracked_frames": len(results),
+    })
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_frame(request, video_id, frame_number):

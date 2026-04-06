@@ -1,6 +1,7 @@
 import os.path
 import sys
 import platform
+import threading
 import tkinter
 from tkinter import Tk, Frame, Menu, StringVar, BooleanVar, Canvas
 import webbrowser
@@ -22,6 +23,7 @@ from customtkinter import (CTk,
 from PIL import Image, ImageTk
 
 from annotation_store import AnnotationStore
+from prediction_engine import predict_next_frame, track_object
 
 # Windows Mica effect constants and function
 DWMWA_SYSTEMBACKDROP_TYPE = 38
@@ -72,6 +74,10 @@ bbox_scale   = 1.0
 bbox_drawn_rect_ids = []
 bbox_drawn_text_ids = []
 current_image_id = None
+current_video_path = None
+current_frame_number = 0
+selected_annotation_id = None   # ID of the annotation chosen in the selector
+_annotation_selector_widget = None  # reference to the live CTkOptionMenu
 
 # Classes and utils -------------------
 
@@ -262,6 +268,9 @@ def open_files_action():
         show_frame_with_canvas(supported_files_list[0])
         place_save_annotations_button()
         place_bbox_toggle_checkbox()
+        place_prediction_button()
+        place_track_button()
+        refresh_annotation_selector()
 
     else: 
         info_message.set("Not supported files :(")
@@ -317,6 +326,7 @@ def on_bbox_mouse_release(event):
         count = len(annotation_store.get_annotations_for_image(current_image_id))
         info_message.set("Bounding box saved  |  Total: " + str(count))
         print("> Added bbox [" + str(orig_x) + ", " + str(orig_y) + ", " + str(orig_w) + ", " + str(orig_h) + "]")
+        refresh_annotation_selector()
     else:
         # Too small – remove the drawn rectangle
         bbox_canvas.delete(bbox_rect_id)
@@ -412,6 +422,146 @@ def clear_bboxes_action():
     bbox_drawn_rect_ids = []
     bbox_drawn_text_ids = []
     info_message.set("All bounding boxes cleared")
+    refresh_annotation_selector()
+
+def run_prediction_action():
+    """Run object tracking to predict bounding boxes in the next frame.
+
+    Uses the annotation chosen in the selector (or the last annotation if
+    none is explicitly selected) as the tracking target.
+    If no annotation exists, a popup informs the user.
+    """
+    global current_frame_number, selected_annotation_id
+
+    # Check that there is at least one annotation to track
+    if current_image_id is None or not annotation_store.get_annotations_for_image(current_image_id):
+        _show_no_annotation_popup()
+        return
+
+    if current_video_path is None:
+        _show_no_annotation_popup()
+        return
+
+    # Resolve which annotation to track
+    annotations = annotation_store.get_annotations_for_image(current_image_id)
+    target_ann = None
+    if selected_annotation_id is not None:
+        matches = [a for a in annotations if a["id"] == selected_annotation_id]
+        if matches:
+            target_ann = matches[0]
+    if target_ann is None:
+        target_ann = annotations[-1]  # fallback: last annotation
+    bbox = target_ann["bbox"]
+
+    success, predicted_bbox = predict_next_frame(
+        current_video_path, current_frame_number, bbox
+    )
+
+    if not success:
+        info_message.set("Prediction failed – could not track to next frame")
+        return
+
+    next_frame = current_frame_number + 1
+
+    # Display the next frame on the canvas
+    show_frame_with_canvas(current_video_path, frame_number=next_frame)
+
+    # Add the predicted bounding box as a new annotation
+    ann_id = annotation_store.add_annotation(current_image_id, predicted_bbox)
+
+    # Draw the predicted bbox on the canvas
+    x, y, w, h = predicted_bbox
+    cx = x * bbox_scale
+    cy = y * bbox_scale
+    cw = w * bbox_scale
+    ch = h * bbox_scale
+    rect_id = bbox_canvas.create_rectangle(
+        cx, cy, cx + cw, cy + ch,
+        outline="#00FF00", width=2
+    )
+    bbox_drawn_rect_ids.append(rect_id)
+    text_id = bbox_canvas.create_text(
+        cx + 3, cy + 3, anchor=tkinter.NW,
+        text=str(ann_id), fill="#00FF00",
+        font=("Segoe UI", 9, "bold")
+    )
+    bbox_drawn_text_ids.append(text_id)
+
+    count = len(annotation_store.get_annotations_for_image(current_image_id))
+    info_message.set("Prediction saved  |  Frame " + str(next_frame) + "  |  Total: " + str(count))
+
+
+def _track_worker(video_path, start_frame, bbox):
+    """Background thread: track object through all subsequent frames."""
+    results = track_object(video_path, start_frame, bbox)
+
+    def _apply():
+        if not results:
+            info_message.set("Tracking failed – object not found on next frame")
+            return
+        for r in results:
+            if current_image_id is not None:
+                annotation_store.add_annotation(
+                    current_image_id,
+                    r["bbox"],
+                )
+        last = results[-1]
+        show_frame_with_canvas(video_path, frame_number=last["frame_number"])
+        draw_bboxes_from_store()
+        refresh_annotation_selector()
+        info_message.set(
+            f"Tracked {len(results)} frame(s)  |  Frames "
+            f"{start_frame + 1}\u2013{last['frame_number'] + 1}"
+        )
+
+    window.after(0, _apply)
+
+
+def track_to_end_action():
+    """Launch background tracking from the current frame to the end of the video."""
+    global selected_annotation_id
+
+    if current_image_id is None or not annotation_store.get_annotations_for_image(current_image_id):
+        _show_no_annotation_popup()
+        return
+
+    if current_video_path is None:
+        _show_no_annotation_popup()
+        return
+
+    annotations = annotation_store.get_annotations_for_image(current_image_id)
+    target_ann = None
+    if selected_annotation_id is not None:
+        matches = [a for a in annotations if a["id"] == selected_annotation_id]
+        if matches:
+            target_ann = matches[0]
+    if target_ann is None:
+        target_ann = annotations[-1]
+    bbox = target_ann["bbox"]
+
+    info_message.set("Tracking\u2026")
+    threading.Thread(
+        target=_track_worker,
+        args=(current_video_path, current_frame_number, bbox),
+        daemon=True,
+    ).start()
+
+
+def _show_no_annotation_popup():
+    """Display a popup informing the user that no annotation is selected."""
+    popup = tkinter.Toplevel(window)
+    popup.title("No Annotation")
+    popup.geometry("300x100")
+    popup.resizable(False, False)
+    popup.grab_set()
+
+    msg = tkinter.Label(popup,
+                        text="No Annotation Selected",
+                        padx=15, pady=20)
+    msg.pack()
+
+    tkinter.Button(popup, text="OK", width=10,
+                   command=popup.destroy).pack(pady=5)
 
 def _do_load_bbox():
     """Open a file dialog, load COCO annotations, and draw bounding boxes."""
@@ -463,6 +613,9 @@ def _do_load_bbox():
             draw_bboxes_from_store()
             place_save_annotations_button()
             place_bbox_toggle_checkbox()
+            place_prediction_button()
+            place_track_button()
+            refresh_annotation_selector()
         elif bbox_canvas is not None and current_video_name is not None:
             # Canvas already showing a frame – update current_image_id from
             # the loaded data so draw_bboxes_from_store finds the right
@@ -490,20 +643,25 @@ def load_bbox_action():
     else:
         _do_load_bbox()
 
-def show_frame_with_canvas(video_file):
-    """Display the first frame of a video on a canvas for bounding box annotation."""
+def show_frame_with_canvas(video_file, frame_number=0):
+    """Display a frame of a video on a canvas for bounding box annotation."""
     global bbox_canvas, bbox_photo, current_image_id, bbox_drawn_rect_ids, bbox_drawn_text_ids
+    global current_video_path, current_frame_number
 
     cap = cv2.VideoCapture(video_file)
     width  = round(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = round(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     video_name = os.path.basename(video_file)
 
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
     ret, frame = cap.read()
     cap.release()
     if not ret:
         info_message.set("Could not read video frame")
         return
+
+    current_video_path = video_file
+    current_frame_number = frame_number
 
     # Avoid duplicate image entries for the same file
     existing = [img for img in annotation_store.images if img["file_name"] == video_name]
@@ -540,7 +698,7 @@ def show_frame_with_canvas(video_file):
     bbox_canvas.bind("<B1-Motion>", on_bbox_mouse_drag)
     bbox_canvas.bind("<ButtonRelease-1>", on_bbox_mouse_release)
 
-    info_message.set("Draw bounding boxes on the frame  |  " + video_name)
+    info_message.set("Draw bounding boxes on the frame  |  " + video_name + "  |  Frame " + str(frame_number))
 
 # UI Elements -------------------------
 
@@ -671,6 +829,74 @@ def place_clear_bbox_button():
                           command = clear_bboxes_action)
     clear_btn.place(relx = 0.85, rely = 0.6, anchor = tkinter.CENTER)
 
+def place_annotation_selector():
+    """Place a label + dropdown for selecting which annotation to predict from."""
+    global _annotation_selector_widget
+    if current_image_id is None:
+        return
+    annotations = annotation_store.get_annotations_for_image(current_image_id)
+    if not annotations:
+        return
+
+    ann_label = CTkLabel(master     = window,
+                         text       = "Predict from bbox:",
+                         font       = bold11,
+                         fg_color   = transparent_color,
+                         text_color = "#E0E0E0")
+    ann_label.place(relx = 0.27, rely = 0.7, anchor = tkinter.CENTER)
+
+    options = [str(a["id"]) for a in annotations]
+    selector_var = StringVar(value=options[-1])
+
+    def on_select(choice):
+        global selected_annotation_id
+        selected_annotation_id = int(choice)
+
+    # Set initial value
+    selected_annotation_id = int(options[-1])
+
+    menu = CTkOptionMenu(master   = window,
+                         width    = 80,
+                         height   = 30,
+                         font     = bold11,
+                         variable = selector_var,
+                         values   = options,
+                         command  = on_select)
+    menu.place(relx = 0.42, rely = 0.7, anchor = tkinter.CENTER)
+    _annotation_selector_widget = menu
+
+
+def refresh_annotation_selector():
+    """Rebuild the annotation selector dropdown with the current annotation IDs."""
+    place_annotation_selector()
+
+
+def place_prediction_button():
+    pred_btn = CTkButton(master  = window,
+                         width   = 180,
+                         height  = 30,
+                         text    = "PREDICTION RUN",
+                         font    = bold11,
+                         fg_color   = "#6f42c1",
+                         text_color = "#FFFFFF",
+                         border_spacing = 0,
+                         corner_radius  = 25,
+                         command = run_prediction_action)
+    pred_btn.place(relx = 0.5, rely = 0.7, anchor = tkinter.CENTER)
+
+def place_track_button():
+    track_btn = CTkButton(master  = window,
+                          width   = 180,
+                          height  = 30,
+                          text    = "TRACK TO END",
+                          font    = bold11,
+                          fg_color   = "#0d9488",
+                          text_color = "#FFFFFF",
+                          border_spacing = 0,
+                          corner_radius  = 25,
+                          command = track_to_end_action)
+    track_btn.place(relx = 0.5, rely = 0.75, anchor = tkinter.CENTER)
+
 def place_bbox_toggle_checkbox():
     bbox_toggle = CTkCheckBox(master   = window,
                               text     = "Show Bounding Boxes",
@@ -712,6 +938,8 @@ class App():
         place_github_button()
         place_load_bbox_button()
         place_clear_bbox_button()
+        place_prediction_button()
+        place_track_button()
         place_message_label()
 
         if is_Windows11(): apply_windows_transparency_effect(window)

@@ -392,3 +392,35 @@ body {
 .modal-actions .btn {
   min-width: 100px;
 }
+
+/* Predict button */
+.btn-predict {
+  background: #6f42c1;
+  border-color: #6f42c1;
+  color: #fff;
+}
+.btn-predict:hover {
+  background: #8555d4;
+  border-color: #8555d4;
+}
+
+/* Track to End button */
+.btn-track {
+  background: #0d9488;
+  border-color: #0d9488;
+  color: #fff;
+}
+.btn-track:hover {
+  background: #0faba0;
+  border-color: #0faba0;
+}
+
+/* Annotation selected for prediction */
+.ann-item.selected-for-predict {
+  border-left: 3px solid #6f42c1;
+  background: rgba(111, 66, 193, 0.12);
+  color: var(--text-primary);
+}
+.ann-item.selected-for-predict:hover {
+  background: rgba(111, 66, 193, 0.22);
+}

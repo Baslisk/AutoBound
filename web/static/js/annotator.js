@@ -27,6 +27,8 @@
   const modalSave = document.getElementById("modalSave");
   const modalDiscard = document.getElementById("modalDiscard");
   const modalCancel = document.getElementById("modalCancel");
+  const predictBtn = document.getElementById("predictBtn");
+  const trackBtn = document.getElementById("trackBtn");
 
   let img = new Image();
   let scale = 1;
@@ -42,6 +44,7 @@
   let loadingFrame = false;
   let allAnnotations = [];  // all annotations for this video (panel data)
   let highlightId = null;   // annotation id to flash-highlight on canvas
+  let selectedPanelAnnId = null; // annotation selected for prediction
 
   /* ---------- playback state ---------- */
   var fps = (typeof FPS !== "undefined" && FPS > 0) ? FPS : 30;
@@ -410,7 +413,10 @@
       for (var ai = 0; ai < anns.length; ai++) {
         var ann = anns[ai];
         var item = document.createElement("div");
-        item.className = "ann-item" + (frameNum === currentFrame && highlightId === ann.id ? " active" : "");
+        var itemClasses = "ann-item";
+        if (frameNum === currentFrame && highlightId === ann.id) itemClasses += " active";
+        if (selectedPanelAnnId === ann.id) itemClasses += " selected-for-predict";
+        item.className = itemClasses;
         item.setAttribute("data-ann-id", ann.id);
         item.setAttribute("data-frame", frameNum);
 
@@ -428,15 +434,18 @@
 
         (function (annId, fn) {
           item.addEventListener("click", function () {
+            // Toggle prediction selection
+            selectedPanelAnnId = (selectedPanelAnnId === annId) ? null : annId;
+
+            // Highlight on canvas
             highlightId = annId;
             if (fn !== currentFrame) {
               goToFrame(fn);
-              // After frame loads, draw will pick up the highlightId
             } else {
               draw();
             }
             renderAnnotationPanel();
-            // Clear highlight after a short delay
+            // Clear canvas highlight after a short delay
             setTimeout(function () {
               if (highlightId === annId) {
                 highlightId = null;
@@ -692,6 +701,148 @@
     modalCancel.addEventListener("click", function () {
       hideImportModal();
     }, { once: true });
+  }
+
+  /* ---------- predict ---------- */
+
+  if (predictBtn) {
+    predictBtn.addEventListener("click", function () {
+      if (selectedPanelAnnId === null) {
+        setStatus("Select an annotation in the panel first");
+        return;
+      }
+
+      setStatus("Predicting…");
+      predictBtn.disabled = true;
+
+      fetch("/api/predict/", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          video_id: VIDEO_ID,
+          frame_number: currentFrame,
+          annotation_id: selectedPanelAnnId,
+        }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          predictBtn.disabled = false;
+          if (!data.success || !data.predicted_bbox) {
+            setStatus("Prediction failed — could not track to next frame");
+            return;
+          }
+          var bbox = data.predicted_bbox;
+          var nextFrame = data.next_frame;
+
+          // Save the predicted bbox via the existing annotations endpoint
+          fetch("/api/annotations/", {
+            method: "POST",
+            headers: headers(),
+            body: JSON.stringify({
+              image: VIDEO_ID,
+              category: 1,
+              bbox_x: bbox[0],
+              bbox_y: bbox[1],
+              bbox_w: bbox[2],
+              bbox_h: bbox[3],
+              frame_number: nextFrame,
+            }),
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (savedAnn) {
+              setStatus("Predicted bbox saved on frame " + (nextFrame + 1));
+              selectedPanelAnnId = savedAnn.id; // auto-select the new prediction
+              goToFrame(nextFrame);
+              loadAllAnnotations();
+            })
+            .catch(function () {
+              setStatus("Prediction succeeded but failed to save bbox");
+            });
+        })
+        .catch(function () {
+          predictBtn.disabled = false;
+          setStatus("Prediction request failed");
+        });
+    });
+  }
+
+  /* ---------- track to end ---------- */
+
+  if (trackBtn) {
+    trackBtn.addEventListener("click", function () {
+      if (selectedPanelAnnId === null) {
+        setStatus("Select an annotation in the panel first");
+        return;
+      }
+
+      setStatus("Tracking\u2026");
+      trackBtn.disabled = true;
+      if (predictBtn) predictBtn.disabled = true;
+
+      fetch("/api/track/", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          video_id: VIDEO_ID,
+          start_frame: currentFrame,
+          annotation_id: selectedPanelAnnId,
+        }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          trackBtn.disabled = false;
+          if (predictBtn) predictBtn.disabled = false;
+
+          var results = data.results || [];
+          if (results.length === 0) {
+            setStatus("Tracked 0 frames \u2014 object not found on next frame");
+            return;
+          }
+
+          // Save predicted bboxes sequentially to avoid SQLite write contention
+          var firstFrame = results[0].frame_number;
+          var lastFrame = results[results.length - 1].frame_number;
+          var saved = [];
+
+          results.reduce(function (chain, r) {
+            return chain.then(function () {
+              return fetch("/api/annotations/", {
+                method: "POST",
+                headers: headers(),
+                body: JSON.stringify({
+                  image: VIDEO_ID,
+                  category: 1,
+                  bbox_x: r.bbox[0],
+                  bbox_y: r.bbox[1],
+                  bbox_w: r.bbox[2],
+                  bbox_h: r.bbox[3],
+                  frame_number: r.frame_number,
+                }),
+              }).then(function (resp) { return resp.json(); })
+                .then(function (ann) { saved.push(ann); });
+            });
+          }, Promise.resolve()).then(function () {
+            // Auto-select the last saved annotation for chained tracking
+            if (saved.length > 0) {
+              selectedPanelAnnId = saved[saved.length - 1].id;
+            }
+            var frameRange = firstFrame === lastFrame
+              ? "frame " + (firstFrame + 1)
+              : "frames " + (firstFrame + 1) + "\u2013" + (lastFrame + 1);
+            setStatus("Tracked " + results.length + " frame" + (results.length !== 1 ? "s" : "") + " (" + frameRange + ")");
+            goToFrame(lastFrame);
+            loadAllAnnotations();
+          }).catch(function () {
+            setStatus("Tracked but failed to save some bboxes");
+            loadAllAnnotations();
+          });
+        })
+        .catch(function () {
+          trackBtn.disabled = false;
+          if (predictBtn) predictBtn.disabled = false;
+          setStatus("Track request failed");
+        });
+    });
   }
 
   /* ---------- frame navigation ---------- */
