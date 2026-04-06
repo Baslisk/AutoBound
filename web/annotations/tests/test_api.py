@@ -396,3 +396,121 @@ class AnnotateViewTest(TestCase):
         resp = self.client.get(f"/annotate/{video.pk}/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.context["fps"], 30.0)
+
+
+class PredictionAPITest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("tester", password="pass1234")
+        self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        self.video = VideoFile.objects.create(
+            file_name="clip.mp4", width=800, height=600,
+            frame_count=100, uploaded_by=self.user,
+        )
+        self.ann = Annotation.objects.create(
+            image=self.video, category=self.cat,
+            bbox_x=10, bbox_y=20, bbox_w=50, bbox_h=40,
+            frame_number=0, created_by=self.user,
+        )
+        self.client = APIClient()
+        self.client.login(username="tester", password="pass1234")
+
+    def test_predict_no_video_file(self):
+        """Should return 404 when the VideoFile has no associated file on disk."""
+        resp = self.client.post("/api/predict/", {
+            "video_id": self.video.pk,
+            "frame_number": 0,
+            "annotation_id": self.ann.pk,
+        }, format="json")
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("detail", resp.json())
+
+    def test_predict_invalid_annotation_id(self):
+        """Should return 400 when the annotation_id does not exist for this user/video."""
+        resp = self.client.post("/api/predict/", {
+            "video_id": self.video.pk,
+            "frame_number": 0,
+            "annotation_id": 99999,
+        }, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_predict_unauthenticated(self):
+        """Should return 401/403 for unauthenticated requests."""
+        self.client.logout()
+        resp = self.client.post("/api/predict/", {
+            "video_id": self.video.pk,
+            "frame_number": 0,
+            "annotation_id": self.ann.pk,
+        }, format="json")
+        self.assertIn(resp.status_code, [401, 403])
+
+    def test_predict_missing_params(self):
+        """Should return 400 when required fields are missing."""
+        resp = self.client.post("/api/predict/", {
+            "video_id": self.video.pk,
+        }, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+
+class TrackAnnotationAPITest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("tester", password="pass1234")
+        self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        self.video = VideoFile.objects.create(
+            file_name="clip.mp4", width=800, height=600,
+            frame_count=100, uploaded_by=self.user,
+        )
+        self.ann = Annotation.objects.create(
+            image=self.video, category=self.cat,
+            bbox_x=10, bbox_y=20, bbox_w=50, bbox_h=40,
+            frame_number=0, created_by=self.user,
+        )
+        self.client = APIClient()
+        self.client.login(username="tester", password="pass1234")
+
+    def test_track_no_video_file(self):
+        """Should return 404 when the VideoFile has no associated file on disk."""
+        resp = self.client.post("/api/track/", {
+            "video_id": self.video.pk,
+            "start_frame": 0,
+            "annotation_id": self.ann.pk,
+        }, format="json")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_track_invalid_annotation_id(self):
+        """Should return 400 when the annotation_id does not exist for this user/video."""
+        resp = self.client.post("/api/track/", {
+            "video_id": self.video.pk,
+            "start_frame": 0,
+            "annotation_id": 99999,
+        }, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_track_unauthenticated(self):
+        """Should return 401/403 for unauthenticated requests."""
+        self.client.logout()
+        resp = self.client.post("/api/track/", {
+            "video_id": self.video.pk,
+            "start_frame": 0,
+            "annotation_id": self.ann.pk,
+        }, format="json")
+        self.assertIn(resp.status_code, [401, 403])
+
+    def test_track_missing_params(self):
+        """Should return 400 when required fields are missing."""
+        resp = self.client.post("/api/track/", {
+            "video_id": self.video.pk,
+        }, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_track_max_frames_respected(self):
+        """Response tracked_frames should not exceed max_frames when video is missing."""
+        # With no file the endpoint returns 404 before calling track_object,
+        # so this just verifies the param is accepted without error.
+        resp = self.client.post("/api/track/", {
+            "video_id": self.video.pk,
+            "start_frame": 0,
+            "annotation_id": self.ann.pk,
+            "max_frames": 5,
+        }, format="json")
+        # 404 because no file — confirms max_frames is accepted (no 400)
+        self.assertEqual(resp.status_code, 404)

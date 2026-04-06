@@ -101,3 +101,67 @@ def predict_next_frame(video_path, frame_number, bbox):
     tx, ty, tw, th = tracked_box
     predicted_bbox = [round(tx), round(ty), round(tw), round(th)]
     return True, predicted_bbox
+
+
+def track_object(video_path, start_frame, bbox, max_frames=0):
+    """Track a bounding box through consecutive frames starting from *start_frame*.
+
+    Opens the video once and keeps the tracker alive across frames, which is
+    significantly more efficient than calling :func:`predict_next_frame`
+    repeatedly.
+
+    Args:
+        video_path: Filesystem path to the video file.
+        start_frame: Zero-based index of the seed frame that *bbox* belongs to.
+        bbox: ``[x, y, width, height]`` in original image coordinates.
+        max_frames: Maximum number of frames to track beyond *start_frame*.
+            ``0`` means track until failure or end of video.
+
+    Returns:
+        A list of dicts ``{"frame_number": int, "bbox": [x, y, w, h]}``,
+        one entry per successfully tracked frame.  Returns an empty list if
+        tracking fails immediately.
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return []
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if start_frame < 0 or start_frame + 1 >= total_frames:
+        cap.release()
+        return []
+
+    # Seek to and read the seed frame
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    ret, seed_frame = cap.read()
+    if not ret:
+        cap.release()
+        return []
+
+    # Initialise the tracker on the seed frame
+    tracker = _create_tracker()
+    x, y, w, h = bbox
+    tracker.init(seed_frame, (int(x), int(y), int(w), int(h)))
+
+    results = []
+    frame_num = start_frame + 1
+    limit = (start_frame + max_frames) if max_frames > 0 else total_frames
+
+    while frame_num < limit:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        success, tracked_box = tracker.update(frame)
+        if not success:
+            break
+
+        tx, ty, tw, th = tracked_box
+        results.append({
+            "frame_number": frame_num,
+            "bbox": [round(tx), round(ty), round(tw), round(th)],
+        })
+        frame_num += 1
+
+    cap.release()
+    return results
