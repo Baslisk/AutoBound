@@ -5,9 +5,11 @@ from . import api
 
 router = DefaultRouter()
 router.register(r"annotations", api.AnnotationViewSet, basename="annotation")
+router.register(r"categories", api.CategoryViewSet, basename="category")
 
 urlpatterns = [
     path("annotations/clear/", api.clear_annotations, name="api_clear_annotations"),
+    path("categories/<int:category_id>/delete/", api.delete_category, name="api_delete_category"),
 ] + router.urls + [
     path("export/<int:video_id>/", api.export_coco, name="api_export_coco"),
     path("import/", api.import_coco, name="api_import_coco"),

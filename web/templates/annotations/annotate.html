@@ -64,9 +64,24 @@
     </div>
   </div>
 
-  <aside class="ann-panel" id="annPanel">
-    <h4>Annotations <span id="annPanelCount" class="ann-panel-count">0</span></h4>
-    <ul id="annList" class="ann-list"></ul>
+  <aside class="right-panel" id="rightPanel">
+    <div class="panel-tabs">
+      <button class="panel-tab active" data-tab="annotations">Annotations</button>
+      <button class="panel-tab" data-tab="categories">Categories</button>
+    </div>
+
+    <div class="panel-content" id="annotationsTab">
+      <h4>Annotations <span id="annPanelCount" class="ann-panel-count">0</span></h4>
+      <ul id="annList" class="ann-list"></ul>
+    </div>
+
+    <div class="panel-content hidden" id="categoriesTab">
+      <div class="cat-header">
+        <h4>Categories</h4>
+        <button class="btn btn-sm btn-accent" id="addCategoryBtn" title="Add category">+</button>
+      </div>
+      <ul id="catList" class="cat-list"></ul>
+    </div>
   </aside>
 </div>
 
@@ -78,6 +93,35 @@
       <button class="btn btn-green" id="modalSave">Save &amp; Replace</button>
       <button class="btn btn-red" id="modalDiscard">Discard &amp; Replace</button>
       <button class="btn" id="modalCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="categoryPickerModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h3>Select Category</h3>
+    <ul id="categoryPickerList" class="cat-picker-list"></ul>
+    <div class="modal-actions">
+      <button class="btn btn-sm btn-accent" id="pickerAddCatBtn">+ New Category</button>
+      <button class="btn" id="pickerCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="newCategoryModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h3>New Category</h3>
+    <div class="form-group">
+      <label for="newCatName">Category Name</label>
+      <input type="text" id="newCatName" maxlength="50" placeholder="e.g. person, car, tree…">
+    </div>
+    <div class="form-group">
+      <label for="newCatColor">Color</label>
+      <input type="color" id="newCatColor" value="#00FF00">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-green" id="newCatSaveBtn">Create</button>
+      <button class="btn" id="newCatCancelBtn">Cancel</button>
     </div>
   </div>
 </div>
@@ -93,6 +137,7 @@
   const IMG_HEIGHT = {{ video.height }};
   const FRAME_COUNT = {{ frame_count }};
   const FPS = {{ fps }};
+  const INITIAL_CATEGORIES = {{ categories_json|safe }};
 </script>
 <script src="{% static 'js/annotator.js' %}"></script>
 {% endblock %}

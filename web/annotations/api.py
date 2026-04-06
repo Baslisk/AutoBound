@@ -18,7 +18,7 @@ if _project_root not in sys.path:
 from frame_cache import FrameCache
 
 from .models import Annotation, Category, VideoFile
-from .serializers import AnnotationSerializer
+from .serializers import AnnotationSerializer, CategorySerializer
 
 # Module-level shared cache instance (lives for the duration of the process)
 _frame_cache = FrameCache(max_frames=64, max_captures=8)
@@ -41,6 +41,33 @@ class AnnotationViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
 
+class CategoryViewSet(viewsets.ModelViewSet):
+    serializer_class = CategorySerializer
+    queryset = Category.objects.all()
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def delete_category(request, category_id):
+    """Delete a category and reassign its annotations to the default category."""
+    if category_id == 1:
+        return Response(
+            {"detail": "Cannot delete the default category."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        cat = Category.objects.get(pk=category_id)
+    except Category.DoesNotExist:
+        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    default_cat, _ = Category.objects.get_or_create(
+        pk=1, defaults={"name": "object", "supercategory": "none"}
+    )
+    Annotation.objects.filter(category=cat).update(category=default_cat)
+    cat.delete()
+    return Response({"detail": "Deleted."}, status=status.HTTP_200_OK)
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def export_coco(request, video_id):
@@ -55,7 +82,10 @@ def export_coco(request, video_id):
     coco = {
         "images": [video.to_coco_dict()],
         "annotations": [a.to_coco_dict() for a in annotations],
-        "categories": [{"id": c.pk, "name": c.name, "supercategory": c.supercategory} for c in categories],
+        "categories": [
+            {"id": c.pk, "name": c.name, "supercategory": c.supercategory, "color": c.color}
+            for c in categories
+        ],
     }
     return Response(coco)
 
@@ -70,6 +100,17 @@ def import_coco(request):
 
     # Ensure default category
     Category.objects.get_or_create(pk=1, defaults={"name": "object", "supercategory": "none"})
+
+    # Import categories from COCO data
+    for cat_data in data.get("categories", []):
+        cat_id = cat_data.get("id")
+        if cat_id is not None:
+            defaults = {"name": cat_data.get("name", "object")}
+            if "supercategory" in cat_data:
+                defaults["supercategory"] = cat_data["supercategory"]
+            if "color" in cat_data:
+                defaults["color"] = cat_data["color"]
+            Category.objects.update_or_create(pk=cat_id, defaults=defaults)
 
     # If video_id is provided, scope all annotations to that video
     target_video_id = request.query_params.get("video_id")

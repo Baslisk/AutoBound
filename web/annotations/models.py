@@ -3,8 +3,9 @@ from django.db import models
 
 
 class Category(models.Model):
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=50)
     supercategory = models.CharField(max_length=100, default="none")
+    color = models.CharField(max_length=7, default="#00FF00")
 
     class Meta:
         verbose_name_plural = "categories"

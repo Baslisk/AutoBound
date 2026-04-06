@@ -514,3 +514,149 @@ class TrackAnnotationAPITest(TestCase):
         }, format="json")
         # 404 because no file — confirms max_frames is accepted (no 400)
         self.assertEqual(resp.status_code, 404)
+
+
+class CategoryAPITest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("tester", password="pass1234")
+        self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        self.client = APIClient()
+        self.client.login(username="tester", password="pass1234")
+
+    def test_list_categories(self):
+        resp = self.client.get("/api/categories/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 1)
+        self.assertEqual(resp.data[0]["name"], "object")
+
+    def test_create_category(self):
+        resp = self.client.post("/api/categories/", {
+            "name": "person",
+            "color": "#FF0000",
+        })
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(Category.objects.count(), 2)
+        cat = Category.objects.get(name="person")
+        self.assertEqual(cat.color, "#FF0000")
+
+    def test_create_category_default_color(self):
+        resp = self.client.post("/api/categories/", {"name": "car"})
+        self.assertEqual(resp.status_code, 201)
+        cat = Category.objects.get(name="car")
+        self.assertEqual(cat.color, "#00FF00")
+
+    def test_category_name_max_length(self):
+        resp = self.client.post("/api/categories/", {
+            "name": "a" * 51,
+        })
+        self.assertEqual(resp.status_code, 400)
+
+    def test_delete_category(self):
+        cat2 = Category.objects.create(name="person", color="#FF0000")
+        video = VideoFile.objects.create(
+            file_name="v.mp4", width=640, height=480, uploaded_by=self.user,
+        )
+        ann = Annotation.objects.create(
+            image=video, category=cat2,
+            bbox_x=0, bbox_y=0, bbox_w=10, bbox_h=10,
+            created_by=self.user,
+        )
+        resp = self.client.delete(f"/api/categories/{cat2.pk}/delete/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Category.objects.filter(pk=cat2.pk).exists())
+        ann.refresh_from_db()
+        self.assertEqual(ann.category_id, 1)
+
+    def test_delete_default_category_blocked(self):
+        resp = self.client.delete("/api/categories/1/delete/")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_delete_nonexistent_category(self):
+        resp = self.client.delete("/api/categories/9999/delete/")
+        self.assertEqual(resp.status_code, 404)
+
+
+class CategoryExportImportTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("tester", password="pass1234")
+        self.cat = Category.objects.create(pk=1, name="object", supercategory="none", color="#00FF00")
+        self.cat2 = Category.objects.create(name="person", supercategory="human", color="#FF0000")
+        self.video = VideoFile.objects.create(
+            file_name="test.mp4", width=640, height=480, uploaded_by=self.user,
+        )
+        Annotation.objects.create(
+            image=self.video, category=self.cat2,
+            bbox_x=10, bbox_y=20, bbox_w=30, bbox_h=40,
+            created_by=self.user,
+        )
+        self.client = APIClient()
+        self.client.login(username="tester", password="pass1234")
+
+    def test_export_includes_color(self):
+        resp = self.client.get(f"/api/export/{self.video.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        cat_colors = {c["name"]: c.get("color") for c in data["categories"]}
+        self.assertEqual(cat_colors["object"], "#00FF00")
+        self.assertEqual(cat_colors["person"], "#FF0000")
+
+    def test_import_creates_categories(self):
+        coco = {
+            "categories": [
+                {"id": 10, "name": "dog", "supercategory": "animal", "color": "#0000FF"},
+            ],
+            "images": [{"id": 1, "file_name": "x.mp4", "width": 100, "height": 100}],
+            "annotations": [
+                {"image_id": 1, "category_id": 10, "bbox": [1, 2, 3, 4]},
+            ],
+        }
+        resp = self.client.post(
+            f"/api/import/?video_id={self.video.pk}",
+            data=json.dumps(coco),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        cat = Category.objects.get(pk=10)
+        self.assertEqual(cat.name, "dog")
+        self.assertEqual(cat.color, "#0000FF")
+
+    def test_category_round_trip(self):
+        """Export then import should preserve category colors."""
+        resp = self.client.get(f"/api/export/{self.video.pk}/")
+        coco = resp.json()
+
+        # Delete cat2 and re-import
+        self.cat2.delete()
+        self.assertFalse(Category.objects.filter(name="person").exists())
+
+        resp = self.client.post(
+            f"/api/import/?video_id={self.video.pk}",
+            data=json.dumps(coco),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        cat = Category.objects.get(name="person")
+        self.assertEqual(cat.color, "#FF0000")
+
+
+class AnnotateViewCategoriesTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("tester", password="pass1234")
+        Category.objects.create(pk=1, name="object", supercategory="none", color="#00FF00")
+        Category.objects.create(name="person", color="#FF0000")
+        self.video = VideoFile.objects.create(
+            file_name="clip.mp4", width=800, height=600,
+            uploaded_by=self.user,
+        )
+        self.client = APIClient()
+        self.client.login(username="tester", password="pass1234")
+
+    def test_annotate_context_contains_categories(self):
+        resp = self.client.get(f"/annotate/{self.video.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("categories_json", resp.context)
+        cats = resp.context["categories_json"]
+        self.assertEqual(len(cats), 2)
+        names = [c["name"] for c in cats]
+        self.assertIn("object", names)
+        self.assertIn("person", names)

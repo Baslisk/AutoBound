@@ -6,7 +6,7 @@ from .models import Annotation, Category, VideoFile
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = ["id", "name", "supercategory"]
+        fields = ["id", "name", "supercategory", "color"]
 
 
 class VideoFileSerializer(serializers.ModelSerializer):
