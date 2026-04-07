@@ -3,6 +3,12 @@
 (function () {
   "use strict";
 
+  const PALETTE = [
+    "#ef4444", "#f97316", "#facc15", "#22c55e",
+    "#00e5ff", "#3b82f6", "#a855f7", "#ec4899",
+    "#94a3b8", "#ffffff", "#f59e0b", "#10b981"
+  ];
+
   const canvas = document.getElementById("annotationCanvas");
   const ctx = canvas.getContext("2d");
   const statusBar = document.getElementById("statusBar");
@@ -20,7 +26,6 @@
   const currentTimeEl = document.getElementById("currentTime");
   const remainingTimeEl = document.getElementById("remainingTime");
   const fpsSelect = document.getElementById("fpsSelect");
-  const annPanel = document.getElementById("annPanel");
   const annList = document.getElementById("annList");
   const annPanelCount = document.getElementById("annPanelCount");
   const importModal = document.getElementById("importModal");
@@ -30,9 +35,26 @@
   const predictBtn = document.getElementById("predictBtn");
   const trackBtn = document.getElementById("trackBtn");
 
+  /* --- category UI elements --- */
+  const catList = document.getElementById("catList");
+  const addCategoryBtn = document.getElementById("addCategoryBtn");
+  const categoryPickerModal = document.getElementById("categoryPickerModal");
+  const categoryPickerList = document.getElementById("categoryPickerList");
+  const pickerAddCatBtn = document.getElementById("pickerAddCatBtn");
+  const pickerCancelBtn = document.getElementById("pickerCancelBtn");
+  const newCategoryModal = document.getElementById("newCategoryModal");
+  const newCatName = document.getElementById("newCatName");
+  const colorPalette = document.getElementById("colorPalette");
+  const newCatColorOther = document.getElementById("newCatColorOther");
+  const newCatSaveBtn = document.getElementById("newCatSaveBtn");
+  const newCatCancelBtn = document.getElementById("newCatCancelBtn");
+  const panelTabs = document.querySelectorAll(".panel-tab");
+  const annotationsTab = document.getElementById("annotationsTab");
+  const categoriesTab = document.getElementById("categoriesTab");
+
   let img = new Image();
   let scale = 1;
-  let bboxes = []; // {id, x, y, w, h} in original coords for current frame
+  let bboxes = []; // {id, x, y, w, h, category_id} in original coords for current frame
   let drawing = false;
   let startX = 0;
   let startY = 0;
@@ -45,6 +67,12 @@
   let allAnnotations = [];  // all annotations for this video (panel data)
   let highlightId = null;   // annotation id to flash-highlight on canvas
   let selectedPanelAnnId = null; // annotation selected for prediction
+
+  /* --- categories state --- */
+  var categories = (typeof INITIAL_CATEGORIES !== "undefined") ? INITIAL_CATEGORIES.slice() : [];
+  var pendingBbox = null; // {ox, oy, ow, oh} waiting for category selection
+  var selectedColor = PALETTE[0]; // currently chosen color in New Category modal
+  var reassignAnnId = null; // annotation id being reassigned to a new category
 
   /* ---------- playback state ---------- */
   var fps = (typeof FPS !== "undefined" && FPS > 0) ? FPS : 30;
@@ -113,6 +141,23 @@
     return Object.assign({ "X-CSRFToken": CSRF_TOKEN, "Content-Type": "application/json" }, extra || {});
   }
 
+  function getCategoryById(id) {
+    for (var i = 0; i < categories.length; i++) {
+      if (categories[i].id === id) return categories[i];
+    }
+    return null;
+  }
+
+  function getCategoryColor(catId) {
+    var cat = getCategoryById(catId);
+    return cat ? cat.color : "#00FF00";
+  }
+
+  function getCategoryName(catId) {
+    var cat = getCategoryById(catId);
+    return cat ? cat.name : "object";
+  }
+
   function formatTime(seconds) {
     if (!isFinite(seconds) || seconds < 0) seconds = 0;
     var m = Math.floor(seconds / 60);
@@ -148,6 +193,7 @@
         const cy = toCanvas(b.y);
         const cw = toCanvas(b.w);
         const ch = toCanvas(b.h);
+        var color = getCategoryColor(b.category_id);
 
         if (highlightId !== null && b.id === highlightId) {
           ctx.strokeStyle = "#FFD700";
@@ -155,7 +201,7 @@
           ctx.shadowColor = "#FFD700";
           ctx.shadowBlur = 8;
         } else {
-          ctx.strokeStyle = "#00FF00";
+          ctx.strokeStyle = color;
           ctx.lineWidth = 2;
           ctx.shadowColor = "transparent";
           ctx.shadowBlur = 0;
@@ -164,9 +210,17 @@
         ctx.shadowColor = "transparent";
         ctx.shadowBlur = 0;
 
+        var label = getCategoryName(b.category_id);
+        if (highlightId !== null && b.id === highlightId) {
+          label = getCategoryName(b.category_id) + " #" + b.id;
+        }
         ctx.font = "bold 12px Segoe UI";
-        ctx.fillStyle = (highlightId !== null && b.id === highlightId) ? "#FFD700" : "#00FF00";
-        ctx.fillText(String(b.id), cx + 3, cy + 14);
+        var textW = ctx.measureText(label).width;
+        var textColor = (highlightId !== null && b.id === highlightId) ? "#FFD700" : color;
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(cx, cy - 16, textW + 6, 16);
+        ctx.fillStyle = textColor;
+        ctx.fillText(label, cx + 3, cy - 4);
       }
     }
 
@@ -190,7 +244,7 @@
         bboxes = [];
         for (var i = 0; i < data.length; i++) {
           var a = data[i];
-          bboxes.push({ id: a.id, x: a.bbox_x, y: a.bbox_y, w: a.bbox_w, h: a.bbox_h });
+          bboxes.push({ id: a.id, x: a.bbox_x, y: a.bbox_y, w: a.bbox_w, h: a.bbox_h, category_id: a.category || 1 });
         }
         updateCount();
         draw();
@@ -420,19 +474,49 @@
         item.setAttribute("data-ann-id", ann.id);
         item.setAttribute("data-frame", frameNum);
 
+        var catId = ann.category || 1;
+        var catColor = getCategoryColor(catId);
+        var catName = getCategoryName(catId);
+
+        var colorDot = document.createElement("span");
+        colorDot.className = "ann-item-color";
+        colorDot.style.background = catColor;
+
         var idSpan = document.createElement("span");
         idSpan.className = "ann-item-id";
         idSpan.textContent = "#" + ann.id;
+
+        var catSpan = document.createElement("span");
+        catSpan.className = "ann-item-cat clickable-cat";
+        catSpan.textContent = catName;
+        catSpan.title = "Click to change category";
 
         var bboxSpan = document.createElement("span");
         bboxSpan.className = "ann-item-bbox";
         var bbox = [Math.round(ann.bbox_x), Math.round(ann.bbox_y), Math.round(ann.bbox_w), Math.round(ann.bbox_h)];
         bboxSpan.textContent = bbox.join(", ");
 
+        var deleteBtn = document.createElement("button");
+        deleteBtn.className = "ann-item-delete";
+        deleteBtn.textContent = "✕";
+        deleteBtn.title = "Delete annotation";
+
+        item.appendChild(colorDot);
         item.appendChild(idSpan);
+        item.appendChild(catSpan);
         item.appendChild(bboxSpan);
+        item.appendChild(deleteBtn);
 
         (function (annId, fn) {
+          deleteBtn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            deleteAnnotation(annId);
+          });
+          catSpan.addEventListener("click", function (e) {
+            e.stopPropagation();
+            reassignAnnId = annId;
+            showCategoryPicker();
+          });
           item.addEventListener("click", function () {
             // Toggle prediction selection
             selectedPanelAnnId = (selectedPanelAnnId === annId) ? null : annId;
@@ -470,7 +554,44 @@
     }
   }
 
+  function deleteAnnotation(annId) {
+    fetch("/api/annotations/" + annId + "/", {
+      method: "DELETE",
+      headers: headers(),
+    })
+      .then(function () {
+        bboxes = bboxes.filter(function (b) { return b.id !== annId; });
+        if (selectedPanelAnnId === annId) selectedPanelAnnId = null;
+        if (highlightId === annId) highlightId = null;
+        updateCount();
+        draw();
+        loadAllAnnotations();
+        setStatus("Annotation deleted");
+      })
+      .catch(function () { setStatus("Error deleting annotation"); });
+  }
+
   /* ---------- mouse events ---------- */
+
+  function hitTestBboxes(mx, my) {
+    if (!showBboxes.checked) return null;
+    ctx.font = "bold 12px Segoe UI";
+    for (var i = bboxes.length - 1; i >= 0; i--) {
+      var b = bboxes[i];
+      var cx = toCanvas(b.x), cy = toCanvas(b.y);
+      var cw = toCanvas(b.w), ch = toCanvas(b.h);
+      var label = getCategoryName(b.category_id);
+      var textW = ctx.measureText(label).width;
+      var lx = cx, ly = cy - 16, lw = textW + 6, lh = 16;
+      if (mx >= lx && mx <= lx + lw && my >= ly && my <= ly + lh) {
+        return { bbox: b, onLabel: true };
+      }
+      if (mx >= cx && mx <= cx + cw && my >= cy && my <= cy + ch) {
+        return { bbox: b, onLabel: false };
+      }
+    }
+    return null;
+  }
 
   canvas.addEventListener("mousedown", function (e) {
     if (playing) return;
@@ -504,28 +625,328 @@
     let w = x2 - x1;
     let h = y2 - y1;
 
-    if (w < 3 || h < 3) { draw(); return; }
+    if (w < 3 || h < 3) {
+      var hit = hitTestBboxes(startX, startY);
+      if (hit) {
+        selectedPanelAnnId = hit.bbox.id;
+        highlightId = hit.bbox.id;
+        draw();
+        renderAnnotationPanel();
+        if (hit.onLabel) {
+          reassignAnnId = hit.bbox.id;
+          showCategoryPicker();
+        }
+      } else {
+        selectedPanelAnnId = null;
+        highlightId = null;
+        draw();
+        renderAnnotationPanel();
+      }
+      return;
+    }
 
     const ox = toOriginal(x1);
     const oy = toOriginal(y1);
     const ow = toOriginal(w);
     const oh = toOriginal(h);
 
+    pendingBbox = { ox: ox, oy: oy, ow: ow, oh: oh };
+    showCategoryPicker();
+  });
+
+  /* ---------- category picker & management ---------- */
+
+  function refreshCategories(cb) {
+    fetch("/api/categories/", { headers: headers() })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        categories = data;
+        renderCategoryList();
+        if (cb) cb();
+      })
+      .catch(function () { /* silent */ });
+  }
+
+  function showCategoryPicker() {
+    if (!categoryPickerModal) return;
+    categoryPickerList.innerHTML = "";
+    for (var i = 0; i < categories.length; i++) {
+      var cat = categories[i];
+      var li = document.createElement("li");
+      li.className = "cat-picker-item";
+
+      var preview = document.createElement("span");
+      preview.className = "cat-bbox-preview";
+      preview.style.borderColor = cat.color;
+
+      var nameSpan = document.createElement("span");
+      nameSpan.textContent = cat.name;
+
+      li.appendChild(preview);
+      li.appendChild(nameSpan);
+
+      (function (catId) {
+        li.addEventListener("click", function () {
+          hideCategoryPicker();
+          if (reassignAnnId !== null) {
+            reassignCategory(reassignAnnId, catId);
+            reassignAnnId = null;
+          } else {
+            savePendingBbox(catId);
+          }
+        });
+      })(cat.id);
+
+      categoryPickerList.appendChild(li);
+    }
+    categoryPickerModal.classList.remove("hidden");
+  }
+
+  function hideCategoryPicker() {
+    if (categoryPickerModal) categoryPickerModal.classList.add("hidden");
+  }
+
+  function savePendingBbox(catId) {
+    if (!pendingBbox) return;
+    var pb = pendingBbox;
+    pendingBbox = null;
+
     fetch("/api/annotations/", {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ image: VIDEO_ID, category: 1, bbox_x: ox, bbox_y: oy, bbox_w: ow, bbox_h: oh, frame_number: currentFrame }),
+      body: JSON.stringify({
+        image: VIDEO_ID,
+        category: catId,
+        bbox_x: pb.ox,
+        bbox_y: pb.oy,
+        bbox_w: pb.ow,
+        bbox_h: pb.oh,
+        frame_number: currentFrame,
+      }),
     })
-      .then(r => r.json())
-      .then(data => {
-        bboxes.push({ id: data.id, x: ox, y: oy, w: ow, h: oh });
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        bboxes.push({ id: data.id, x: pb.ox, y: pb.oy, w: pb.ow, h: pb.oh, category_id: catId });
         updateCount();
         setStatus("Bounding box saved");
         draw();
         loadAllAnnotations();
       })
-      .catch(() => setStatus("Error saving bbox"));
-  });
+      .catch(function () { setStatus("Error saving bbox"); });
+  }
+
+  function reassignCategory(annId, newCatId) {
+    fetch("/api/annotations/" + annId + "/", {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ category: newCatId }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function () {
+        for (var i = 0; i < bboxes.length; i++) {
+          if (bboxes[i].id === annId) { bboxes[i].category_id = newCatId; break; }
+        }
+        draw();
+        loadAllAnnotations();
+        setStatus("Category updated");
+      })
+      .catch(function () { setStatus("Error updating category"); });
+  }
+
+  if (pickerCancelBtn) {
+    pickerCancelBtn.addEventListener("click", function () {
+      pendingBbox = null;
+      reassignAnnId = null;
+      hideCategoryPicker();
+      draw();
+    });
+  }
+
+  if (pickerAddCatBtn) {
+    pickerAddCatBtn.addEventListener("click", function () {
+      hideCategoryPicker();
+      showNewCategoryModal(true);
+    });
+  }
+
+  function getNextAutoColor() {
+    var usedColors = categories.map(function (c) { return (c.color || "").toLowerCase(); });
+    for (var i = 0; i < PALETTE.length; i++) {
+      if (usedColors.indexOf(PALETTE[i].toLowerCase()) === -1) return PALETTE[i];
+    }
+    return PALETTE[0];
+  }
+
+  function updateColorPaletteSelection(color) {
+    if (!colorPalette) return;
+    var swatches = colorPalette.querySelectorAll(".color-swatch");
+    for (var i = 0; i < swatches.length; i++) {
+      swatches[i].classList.toggle("selected", swatches[i].dataset.color === color);
+    }
+  }
+
+  function initColorPalette() {
+    if (!colorPalette) return;
+    colorPalette.innerHTML = "";
+    for (var pi = 0; pi < PALETTE.length; pi++) {
+      (function (color) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "color-swatch";
+        btn.dataset.color = color;
+        btn.style.background = color;
+        btn.title = color;
+        btn.addEventListener("click", function () {
+          selectedColor = color;
+          updateColorPaletteSelection(color);
+          if (newCatColorOther) newCatColorOther.style.display = "none";
+        });
+        colorPalette.appendChild(btn);
+      })(PALETTE[pi]);
+    }
+    var otherBtn = document.createElement("button");
+    otherBtn.type = "button";
+    otherBtn.className = "color-swatch color-other-btn";
+    otherBtn.title = "Custom color\u2026";
+    otherBtn.textContent = "\u2026";
+    otherBtn.addEventListener("click", function () {
+      if (newCatColorOther) {
+        newCatColorOther.style.display = "inline-block";
+        newCatColorOther.click();
+      }
+    });
+    colorPalette.appendChild(otherBtn);
+    if (newCatColorOther) {
+      newCatColorOther.addEventListener("input", function () {
+        selectedColor = newCatColorOther.value;
+        updateColorPaletteSelection(selectedColor);
+      });
+    }
+  }
+
+  initColorPalette();
+
+  function showNewCategoryModal(fromPicker) {
+    if (!newCategoryModal) return;
+    newCatName.value = "";
+    selectedColor = getNextAutoColor();
+    updateColorPaletteSelection(selectedColor);
+    newCategoryModal.classList.remove("hidden");
+    newCategoryModal._fromPicker = !!fromPicker;
+    newCatName.focus();
+  }
+
+  function hideNewCategoryModal() {
+    if (newCategoryModal) newCategoryModal.classList.add("hidden");
+  }
+
+  function createCategory() {
+    var name = newCatName.value.trim();
+    if (!name) { setStatus("Category name is required"); return; }
+    if (name.length > 50) { setStatus("Category name max 50 characters"); return; }
+    var color = selectedColor;
+
+    fetch("/api/categories/", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ name: name, color: color }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        categories.push(data);
+        renderCategoryList();
+        hideNewCategoryModal();
+        setStatus("Category '" + name + "' created");
+        if (newCategoryModal._fromPicker && pendingBbox) {
+          showCategoryPicker();
+        }
+      })
+      .catch(function () { setStatus("Error creating category"); });
+  }
+
+  if (newCatSaveBtn) {
+    newCatSaveBtn.addEventListener("click", createCategory);
+  }
+  if (newCatCancelBtn) {
+    newCatCancelBtn.addEventListener("click", function () {
+      hideNewCategoryModal();
+      if (newCategoryModal._fromPicker && pendingBbox) {
+        showCategoryPicker();
+      }
+    });
+  }
+  if (addCategoryBtn) {
+    addCategoryBtn.addEventListener("click", function () {
+      showNewCategoryModal(false);
+    });
+  }
+
+  function renderCategoryList() {
+    if (!catList) return;
+    catList.innerHTML = "";
+    for (var i = 0; i < categories.length; i++) {
+      var cat = categories[i];
+      var li = document.createElement("li");
+      li.className = "cat-list-item";
+
+      var dot = document.createElement("span");
+      dot.className = "cat-color-dot";
+      dot.style.background = cat.color;
+
+      var nameSpan = document.createElement("span");
+      nameSpan.className = "cat-list-name";
+      nameSpan.textContent = cat.name;
+
+      li.appendChild(dot);
+      li.appendChild(nameSpan);
+
+      if (cat.id !== 1) {
+        var delBtn = document.createElement("button");
+        delBtn.className = "cat-list-delete";
+        delBtn.textContent = "✕";
+        delBtn.title = "Delete category";
+        (function (catId, catName) {
+          delBtn.addEventListener("click", function (e) {
+            e.stopPropagation();
+            if (!confirm("Delete category '" + catName + "'? Its annotations will be reassigned to 'object'.")) return;
+            fetch("/api/categories/" + catId + "/delete/", {
+              method: "DELETE",
+              headers: headers(),
+            })
+              .then(function () {
+                setStatus("Category '" + catName + "' deleted");
+                refreshCategories(function () {
+                  loadAnnotationsForFrame(currentFrame);
+                  loadAllAnnotations();
+                });
+              })
+              .catch(function () { setStatus("Error deleting category"); });
+          });
+        })(cat.id, cat.name);
+        li.appendChild(delBtn);
+      }
+
+      catList.appendChild(li);
+    }
+  }
+
+  /* --- panel tab switching --- */
+  for (var ti = 0; ti < panelTabs.length; ti++) {
+    (function (tab) {
+      tab.addEventListener("click", function () {
+        for (var j = 0; j < panelTabs.length; j++) panelTabs[j].classList.remove("active");
+        tab.classList.add("active");
+        var target = tab.getAttribute("data-tab");
+        if (target === "annotations") {
+          annotationsTab.classList.remove("hidden");
+          categoriesTab.classList.add("hidden");
+        } else {
+          annotationsTab.classList.add("hidden");
+          categoriesTab.classList.remove("hidden");
+        }
+      });
+    })(panelTabs[ti]);
+  }
 
   /* ---------- controls ---------- */
 
@@ -623,6 +1044,7 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         setStatus("Imported " + data.imported + " annotations");
+        refreshCategories();
         loadAnnotationsForFrame(currentFrame);
         loadAllAnnotations();
       })
@@ -712,6 +1134,15 @@
         return;
       }
 
+      // Find the selected annotation's category
+      var selectedCatId = 1;
+      for (var si = 0; si < allAnnotations.length; si++) {
+        if (allAnnotations[si].id === selectedPanelAnnId) {
+          selectedCatId = allAnnotations[si].category || 1;
+          break;
+        }
+      }
+
       setStatus("Predicting…");
       predictBtn.disabled = true;
 
@@ -740,7 +1171,7 @@
             headers: headers(),
             body: JSON.stringify({
               image: VIDEO_ID,
-              category: 1,
+              category: selectedCatId,
               bbox_x: bbox[0],
               bbox_y: bbox[1],
               bbox_w: bbox[2],
@@ -773,6 +1204,15 @@
       if (selectedPanelAnnId === null) {
         setStatus("Select an annotation in the panel first");
         return;
+      }
+
+      // Find the selected annotation's category
+      var trackCatId = 1;
+      for (var si = 0; si < allAnnotations.length; si++) {
+        if (allAnnotations[si].id === selectedPanelAnnId) {
+          trackCatId = allAnnotations[si].category || 1;
+          break;
+        }
       }
 
       setStatus("Tracking\u2026");
@@ -811,7 +1251,7 @@
                 headers: headers(),
                 body: JSON.stringify({
                   image: VIDEO_ID,
-                  category: 1,
+                  category: trackCatId,
                   bbox_x: r.bbox[0],
                   bbox_y: r.bbox[1],
                   bbox_w: r.bbox[2],
@@ -912,14 +1352,18 @@
 
       // Load initial annotations (frame 0)
       for (const a of INITIAL_ANNOTATIONS) {
-        bboxes.push({ id: a.id, x: a.bbox[0], y: a.bbox[1], w: a.bbox[2], h: a.bbox[3] });
+        bboxes.push({ id: a.id, x: a.bbox[0], y: a.bbox[1], w: a.bbox[2], h: a.bbox[3], category_id: a.category_id || 1 });
       }
       updateCount();
       draw();
       setStatus("Ready — draw bounding boxes on the frame");
       loadAllAnnotations();
+      renderCategoryList();
     };
     img.src = FRAME_URL;
+
+    // Render categories immediately (doesn't depend on image)
+    renderCategoryList();
   }
 
   init();

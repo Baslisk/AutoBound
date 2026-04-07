@@ -84,8 +84,14 @@ def upload_video(request):
 def annotate(request, video_id):
     video = get_object_or_404(VideoFile, pk=video_id, uploaded_by=request.user)
     annotations = video.annotations.filter(frame_number=0)
+    categories = Category.objects.all()
 
     frame_url = video.frame_image.url if video.frame_image else ""
+
+    categories_json = [
+        {"id": c.pk, "name": c.name, "color": c.color}
+        for c in categories
+    ]
 
     return render(request, "annotations/annotate.html", {
         "video": video,
@@ -93,4 +99,5 @@ def annotate(request, video_id):
         "frame_url": frame_url,
         "frame_count": video.frame_count,
         "fps": video.fps,
+        "categories_json": categories_json,
     })

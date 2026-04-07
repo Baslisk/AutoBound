@@ -18,7 +18,7 @@ class AnnotationStore:
     def __init__(self):
         self.images = []
         self.annotations = []
-        self.categories = [{"id": 1, "name": "object", "supercategory": "none"}]
+        self.categories = [{"id": 1, "name": "object", "supercategory": "none", "color": "#00e5ff"}]
         self._next_image_id = 1
         self._next_annotation_id = 1
 

@@ -13,6 +13,14 @@ class CategoryModelTest(TestCase):
         cat = Category.objects.create(name="car")
         self.assertEqual(cat.supercategory, "none")
 
+    def test_default_color(self):
+        cat = Category.objects.create(name="tree")
+        self.assertEqual(cat.color, "#00FF00")
+
+    def test_custom_color(self):
+        cat = Category.objects.create(name="sky", color="#0000FF")
+        self.assertEqual(cat.color, "#0000FF")
+
 
 class VideoFileModelTest(TestCase):
     def setUp(self):
