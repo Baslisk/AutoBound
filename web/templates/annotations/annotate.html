@@ -116,8 +116,9 @@
       <input type="text" id="newCatName" maxlength="50" placeholder="e.g. person, car, tree…">
     </div>
     <div class="form-group">
-      <label for="newCatColor">Color</label>
-      <input type="color" id="newCatColor" value="#00FF00">
+      <label>Color</label>
+      <div class="color-palette" id="colorPalette"></div>
+      <input type="color" id="newCatColorOther" style="display:none" value="#00FF00">
     </div>
     <div class="modal-actions">
       <button class="btn btn-green" id="newCatSaveBtn">Create</button>

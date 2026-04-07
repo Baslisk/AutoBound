@@ -277,6 +277,14 @@ def open_files_action():
 
 # Bounding box drawing callbacks ------
 
+def get_category_color(category_id, default_color="#00e5ff"):
+    """Return the hex color for a category id, falling back to default_color."""
+    for cat in annotation_store.categories:
+        if cat["id"] == category_id:
+            return cat.get("color", default_color)
+    return default_color
+
+
 def on_bbox_mouse_press(event):
     """Record the starting corner of a new bounding box."""
     global bbox_start_x, bbox_start_y, bbox_rect_id
@@ -284,7 +292,7 @@ def on_bbox_mouse_press(event):
     bbox_start_y = event.y
     bbox_rect_id = bbox_canvas.create_rectangle(
         bbox_start_x, bbox_start_y, bbox_start_x, bbox_start_y,
-        outline="#00FF00", width=2
+        outline=get_category_color(1), width=2
     )
 
 def on_bbox_mouse_drag(event):
@@ -319,7 +327,7 @@ def on_bbox_mouse_release(event):
         # Display annotation id label at top-left corner of the bbox
         text_id = bbox_canvas.create_text(
             x1 + 3, y1 + 3, anchor=tkinter.NW,
-            text=str(ann_id), fill="#00FF00",
+            text=str(ann_id), fill=get_category_color(1),
             font=("Segoe UI", 9, "bold")
         )
         bbox_drawn_text_ids.append(text_id)
@@ -357,15 +365,16 @@ def draw_bboxes_from_store():
         cy = y * bbox_scale
         cw = w * bbox_scale
         ch = h * bbox_scale
+        cat_color = get_category_color(ann.get("category_id", 1))
         rect_id = bbox_canvas.create_rectangle(
             cx, cy, cx + cw, cy + ch,
-            outline="#00FF00", width=2
+            outline=cat_color, width=2
         )
         bbox_drawn_rect_ids.append(rect_id)
         # Display annotation id label at top-left corner of the bbox
         text_id = bbox_canvas.create_text(
             cx + 3, cy + 3, anchor=tkinter.NW,
-            text=str(ann["id"]), fill="#00FF00",
+            text=str(ann["id"]), fill=cat_color,
             font=("Segoe UI", 9, "bold")
         )
         bbox_drawn_text_ids.append(text_id)
@@ -475,14 +484,15 @@ def run_prediction_action():
     cy = y * bbox_scale
     cw = w * bbox_scale
     ch = h * bbox_scale
+    pred_color = get_category_color(1)
     rect_id = bbox_canvas.create_rectangle(
         cx, cy, cx + cw, cy + ch,
-        outline="#00FF00", width=2
+        outline=pred_color, width=2
     )
     bbox_drawn_rect_ids.append(rect_id)
     text_id = bbox_canvas.create_text(
         cx + 3, cy + 3, anchor=tkinter.NW,
-        text=str(ann_id), fill="#00FF00",
+        text=str(ann_id), fill=pred_color,
         font=("Segoe UI", 9, "bold")
     )
     bbox_drawn_text_ids.append(text_id)

@@ -3,6 +3,12 @@
 (function () {
   "use strict";
 
+  const PALETTE = [
+    "#ef4444", "#f97316", "#facc15", "#22c55e",
+    "#00e5ff", "#3b82f6", "#a855f7", "#ec4899",
+    "#94a3b8", "#ffffff", "#f59e0b", "#10b981"
+  ];
+
   const canvas = document.getElementById("annotationCanvas");
   const ctx = canvas.getContext("2d");
   const statusBar = document.getElementById("statusBar");
@@ -38,7 +44,8 @@
   const pickerCancelBtn = document.getElementById("pickerCancelBtn");
   const newCategoryModal = document.getElementById("newCategoryModal");
   const newCatName = document.getElementById("newCatName");
-  const newCatColor = document.getElementById("newCatColor");
+  const colorPalette = document.getElementById("colorPalette");
+  const newCatColorOther = document.getElementById("newCatColorOther");
   const newCatSaveBtn = document.getElementById("newCatSaveBtn");
   const newCatCancelBtn = document.getElementById("newCatCancelBtn");
   const panelTabs = document.querySelectorAll(".panel-tab");
@@ -64,6 +71,8 @@
   /* --- categories state --- */
   var categories = (typeof INITIAL_CATEGORIES !== "undefined") ? INITIAL_CATEGORIES.slice() : [];
   var pendingBbox = null; // {ox, oy, ow, oh} waiting for category selection
+  var selectedColor = PALETTE[0]; // currently chosen color in New Category modal
+  var reassignAnnId = null; // annotation id being reassigned to a new category
 
   /* ---------- playback state ---------- */
   var fps = (typeof FPS !== "undefined" && FPS > 0) ? FPS : 30;
@@ -478,8 +487,9 @@
         idSpan.textContent = "#" + ann.id;
 
         var catSpan = document.createElement("span");
-        catSpan.className = "ann-item-cat";
+        catSpan.className = "ann-item-cat clickable-cat";
         catSpan.textContent = catName;
+        catSpan.title = "Click to change category";
 
         var bboxSpan = document.createElement("span");
         bboxSpan.className = "ann-item-bbox";
@@ -501,6 +511,11 @@
           deleteBtn.addEventListener("click", function (e) {
             e.stopPropagation();
             deleteAnnotation(annId);
+          });
+          catSpan.addEventListener("click", function (e) {
+            e.stopPropagation();
+            reassignAnnId = annId;
+            showCategoryPicker();
           });
           item.addEventListener("click", function () {
             // Toggle prediction selection
@@ -558,6 +573,26 @@
 
   /* ---------- mouse events ---------- */
 
+  function hitTestBboxes(mx, my) {
+    if (!showBboxes.checked) return null;
+    ctx.font = "bold 12px Segoe UI";
+    for (var i = bboxes.length - 1; i >= 0; i--) {
+      var b = bboxes[i];
+      var cx = toCanvas(b.x), cy = toCanvas(b.y);
+      var cw = toCanvas(b.w), ch = toCanvas(b.h);
+      var label = getCategoryName(b.category_id);
+      var textW = ctx.measureText(label).width;
+      var lx = cx, ly = cy - 16, lw = textW + 6, lh = 16;
+      if (mx >= lx && mx <= lx + lw && my >= ly && my <= ly + lh) {
+        return { bbox: b, onLabel: true };
+      }
+      if (mx >= cx && mx <= cx + cw && my >= cy && my <= cy + ch) {
+        return { bbox: b, onLabel: false };
+      }
+    }
+    return null;
+  }
+
   canvas.addEventListener("mousedown", function (e) {
     if (playing) return;
     drawing = true;
@@ -590,7 +625,25 @@
     let w = x2 - x1;
     let h = y2 - y1;
 
-    if (w < 3 || h < 3) { draw(); return; }
+    if (w < 3 || h < 3) {
+      var hit = hitTestBboxes(startX, startY);
+      if (hit) {
+        selectedPanelAnnId = hit.bbox.id;
+        highlightId = hit.bbox.id;
+        draw();
+        renderAnnotationPanel();
+        if (hit.onLabel) {
+          reassignAnnId = hit.bbox.id;
+          showCategoryPicker();
+        }
+      } else {
+        selectedPanelAnnId = null;
+        highlightId = null;
+        draw();
+        renderAnnotationPanel();
+      }
+      return;
+    }
 
     const ox = toOriginal(x1);
     const oy = toOriginal(y1);
@@ -622,20 +675,25 @@
       var li = document.createElement("li");
       li.className = "cat-picker-item";
 
-      var dot = document.createElement("span");
-      dot.className = "cat-color-dot";
-      dot.style.background = cat.color;
+      var preview = document.createElement("span");
+      preview.className = "cat-bbox-preview";
+      preview.style.borderColor = cat.color;
 
       var nameSpan = document.createElement("span");
       nameSpan.textContent = cat.name;
 
-      li.appendChild(dot);
+      li.appendChild(preview);
       li.appendChild(nameSpan);
 
       (function (catId) {
         li.addEventListener("click", function () {
           hideCategoryPicker();
-          savePendingBbox(catId);
+          if (reassignAnnId !== null) {
+            reassignCategory(reassignAnnId, catId);
+            reassignAnnId = null;
+          } else {
+            savePendingBbox(catId);
+          }
         });
       })(cat.id);
 
@@ -677,9 +735,28 @@
       .catch(function () { setStatus("Error saving bbox"); });
   }
 
+  function reassignCategory(annId, newCatId) {
+    fetch("/api/annotations/" + annId + "/", {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ category: newCatId }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function () {
+        for (var i = 0; i < bboxes.length; i++) {
+          if (bboxes[i].id === annId) { bboxes[i].category_id = newCatId; break; }
+        }
+        draw();
+        loadAllAnnotations();
+        setStatus("Category updated");
+      })
+      .catch(function () { setStatus("Error updating category"); });
+  }
+
   if (pickerCancelBtn) {
     pickerCancelBtn.addEventListener("click", function () {
       pendingBbox = null;
+      reassignAnnId = null;
       hideCategoryPicker();
       draw();
     });
@@ -692,10 +769,68 @@
     });
   }
 
+  function getNextAutoColor() {
+    var usedColors = categories.map(function (c) { return (c.color || "").toLowerCase(); });
+    for (var i = 0; i < PALETTE.length; i++) {
+      if (usedColors.indexOf(PALETTE[i].toLowerCase()) === -1) return PALETTE[i];
+    }
+    return PALETTE[0];
+  }
+
+  function updateColorPaletteSelection(color) {
+    if (!colorPalette) return;
+    var swatches = colorPalette.querySelectorAll(".color-swatch");
+    for (var i = 0; i < swatches.length; i++) {
+      swatches[i].classList.toggle("selected", swatches[i].dataset.color === color);
+    }
+  }
+
+  function initColorPalette() {
+    if (!colorPalette) return;
+    colorPalette.innerHTML = "";
+    for (var pi = 0; pi < PALETTE.length; pi++) {
+      (function (color) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "color-swatch";
+        btn.dataset.color = color;
+        btn.style.background = color;
+        btn.title = color;
+        btn.addEventListener("click", function () {
+          selectedColor = color;
+          updateColorPaletteSelection(color);
+          if (newCatColorOther) newCatColorOther.style.display = "none";
+        });
+        colorPalette.appendChild(btn);
+      })(PALETTE[pi]);
+    }
+    var otherBtn = document.createElement("button");
+    otherBtn.type = "button";
+    otherBtn.className = "color-swatch color-other-btn";
+    otherBtn.title = "Custom color\u2026";
+    otherBtn.textContent = "\u2026";
+    otherBtn.addEventListener("click", function () {
+      if (newCatColorOther) {
+        newCatColorOther.style.display = "inline-block";
+        newCatColorOther.click();
+      }
+    });
+    colorPalette.appendChild(otherBtn);
+    if (newCatColorOther) {
+      newCatColorOther.addEventListener("input", function () {
+        selectedColor = newCatColorOther.value;
+        updateColorPaletteSelection(selectedColor);
+      });
+    }
+  }
+
+  initColorPalette();
+
   function showNewCategoryModal(fromPicker) {
     if (!newCategoryModal) return;
     newCatName.value = "";
-    newCatColor.value = "#00FF00";
+    selectedColor = getNextAutoColor();
+    updateColorPaletteSelection(selectedColor);
     newCategoryModal.classList.remove("hidden");
     newCategoryModal._fromPicker = !!fromPicker;
     newCatName.focus();
@@ -709,7 +844,7 @@
     var name = newCatName.value.trim();
     if (!name) { setStatus("Category name is required"); return; }
     if (name.length > 50) { setStatus("Category name max 50 characters"); return; }
-    var color = newCatColor.value;
+    var color = selectedColor;
 
     fetch("/api/categories/", {
       method: "POST",
