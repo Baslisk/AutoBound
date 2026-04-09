@@ -1,10 +1,26 @@
 import json
 
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import TestCase
 from rest_framework.test import APIClient
 
 from annotations.models import Annotation, Category, VideoFile
+
+
+def _reset_category_sequence():
+    """Advance the Category PK sequence past existing rows.
+
+    PostgreSQL sequences are not updated by explicit-PK inserts, which
+    causes IntegrityError when the next auto-PK insert collides.  SQLite
+    handles this automatically so the call is a no-op there.
+    """
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT setval(pg_get_serial_sequence('annotations_category', 'id'), "
+                "COALESCE(MAX(id), 1)) FROM annotations_category"
+            )
 
 
 class AnnotationAPITest(TestCase):
@@ -12,6 +28,7 @@ class AnnotationAPITest(TestCase):
         self.user = User.objects.create_user("tester", password="pass1234")
         self.other = User.objects.create_user("other", password="pass5678")
         self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        _reset_category_sequence()
         self.video = VideoFile.objects.create(
             file_name="clip.mp4", width=800, height=600, uploaded_by=self.user,
         )
@@ -106,6 +123,7 @@ class ExportImportCOCOTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("tester", password="pass1234")
         self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        _reset_category_sequence()
         self.video = VideoFile.objects.create(
             file_name="export.mp4", width=640, height=480, uploaded_by=self.user,
         )
@@ -271,6 +289,7 @@ class ClearAnnotationsTest(TestCase):
         self.user = User.objects.create_user("tester", password="pass1234")
         self.other = User.objects.create_user("other", password="pass5678")
         self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        _reset_category_sequence()
         self.video = VideoFile.objects.create(
             file_name="clip.mp4", width=800, height=600, uploaded_by=self.user,
         )
@@ -348,6 +367,7 @@ class FrameAPITest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("tester", password="pass1234")
         self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        _reset_category_sequence()
         self.video = VideoFile.objects.create(
             file_name="clip.mp4", width=800, height=600,
             frame_count=100, uploaded_by=self.user,
@@ -375,6 +395,7 @@ class AnnotateViewTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("tester", password="pass1234")
         self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        _reset_category_sequence()
         self.video = VideoFile.objects.create(
             file_name="clip.mp4", width=800, height=600,
             frame_count=300, fps=24.0, uploaded_by=self.user,
@@ -402,6 +423,7 @@ class PredictionAPITest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("tester", password="pass1234")
         self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        _reset_category_sequence()
         self.video = VideoFile.objects.create(
             file_name="clip.mp4", width=800, height=600,
             frame_count=100, uploaded_by=self.user,
@@ -455,6 +477,7 @@ class TrackAnnotationAPITest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("tester", password="pass1234")
         self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        _reset_category_sequence()
         self.video = VideoFile.objects.create(
             file_name="clip.mp4", width=800, height=600,
             frame_count=100, uploaded_by=self.user,
@@ -520,6 +543,7 @@ class CategoryAPITest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("tester", password="pass1234")
         self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        _reset_category_sequence()
         self.client = APIClient()
         self.client.login(username="tester", password="pass1234")
 
@@ -580,6 +604,7 @@ class CategoryExportImportTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("tester", password="pass1234")
         self.cat = Category.objects.create(pk=1, name="object", supercategory="none", color="#00FF00")
+        _reset_category_sequence()
         self.cat2 = Category.objects.create(name="person", supercategory="human", color="#FF0000")
         self.video = VideoFile.objects.create(
             file_name="test.mp4", width=640, height=480, uploaded_by=self.user,
@@ -642,8 +667,9 @@ class CategoryExportImportTest(TestCase):
 class AnnotateViewCategoriesTest(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("tester", password="pass1234")
-        Category.objects.create(pk=1, name="object", supercategory="none", color="#00FF00")
-        Category.objects.create(name="person", color="#FF0000")
+        Category.objects.get_or_create(pk=1, defaults={"name": "object", "supercategory": "none", "color": "#00FF00"})
+        Category.objects.create(pk=2, name="person", color="#FF0000")
+        _reset_category_sequence()
         self.video = VideoFile.objects.create(
             file_name="clip.mp4", width=800, height=600,
             uploaded_by=self.user,
