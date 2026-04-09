@@ -1,0 +1,70 @@
+# =============================================================================
+# AutoBound — Local dev: PostgreSQL + MinIO (S3-compatible storage)
+# =============================================================================
+#   - postgres:15-alpine  → standard PostgreSQL
+#   - minio               → S3-compatible object storage for media files
+#
+# Usage:
+#   docker compose up -d
+#   cp .env.docker.example web/.env
+#   cd web && python manage.py migrate
+#
+# Shut down (data preserved):
+#   docker compose down
+#
+# Destroy volumes (wipes all data):
+#   docker compose down -v
+# =============================================================================
+
+services:
+  # ---------- PostgreSQL ----------
+  db:
+    image: postgres:15-alpine
+    ports:
+      - "54322:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------- MinIO (S3-compatible object storage) ----------
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"   # S3 API  →  S3_ENDPOINT_URL=http://127.0.0.1:9000
+      - "9001:9001"   # Web console  →  http://127.0.0.1:9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------- Auto-create the storage bucket on first start ----------
+  createbucket:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/autobound-media &&
+      echo 'Bucket autobound-media is ready.'
+      "
+
+volumes:
+  pgdata:
+  miniodata:

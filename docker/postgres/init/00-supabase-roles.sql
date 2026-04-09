@@ -1,0 +1,6 @@
+-- Standard postgres:15-alpine needs no custom init for Django ORM usage.
+-- This file is intentionally left as a no-op placeholder.
+-- Add any project-specific PostgreSQL extensions or roles here if needed.
+--
+-- Example: enable pg_trgm for fast text search
+-- CREATE EXTENSION IF NOT EXISTS pg_trgm;

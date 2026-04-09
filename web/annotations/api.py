@@ -19,6 +19,7 @@ from frame_cache import FrameCache
 
 from .models import Annotation, Category, VideoFile
 from .serializers import AnnotationSerializer, CategorySerializer
+from .utils import get_local_video_path
 
 # Module-level shared cache instance (lives for the duration of the process)
 _frame_cache = FrameCache(max_frames=64, max_captures=8)
@@ -215,7 +216,7 @@ def predict_annotation(request):
     from prediction_engine import predict_next_frame  # noqa: PLC0415
 
     bbox = [annotation.bbox_x, annotation.bbox_y, annotation.bbox_w, annotation.bbox_h]
-    success, predicted_bbox = predict_next_frame(video.file.path, int(frame_number), bbox)
+    success, predicted_bbox = predict_next_frame(get_local_video_path(video), int(frame_number), bbox)
 
     return Response({
         "success": success,
@@ -267,7 +268,7 @@ def track_annotation(request):
     from prediction_engine import track_object  # noqa: PLC0415
 
     bbox = [annotation.bbox_x, annotation.bbox_y, annotation.bbox_w, annotation.bbox_h]
-    results = track_object(video.file.path, int(start_frame), bbox, max_frames)
+    results = track_object(get_local_video_path(video), int(start_frame), bbox, max_frames)
 
     return Response({
         "results": results,
@@ -296,7 +297,7 @@ def get_frame(request, video_id, frame_number):
     if frame_number < 0 or (total > 0 and frame_number >= total):
         return Response({"detail": "Frame out of range."}, status=status.HTTP_400_BAD_REQUEST)
 
-    video_path = video.file.path
+    video_path = get_local_video_path(video)
 
     # Retrieve frame via cache (handles seeking + decoding internally)
     jpeg_bytes = _frame_cache.get_frame_jpeg(video_path, frame_number)

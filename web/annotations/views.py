@@ -10,6 +10,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from PIL import Image
 
 from .models import Annotation, Category, VideoFile
+from .utils import get_local_video_path
 
 SUPPORTED_EXTENSIONS = (
     ".mp4", ".webm", ".mkv", ".flv", ".gif",
@@ -47,7 +48,7 @@ def upload_video(request):
     video.file.save(uploaded.name, uploaded, save=True)
 
     # Extract first frame
-    video_path = video.file.path
+    video_path = get_local_video_path(video)
     cap = cv2.VideoCapture(video_path)
     width = round(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = round(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
