@@ -4,7 +4,9 @@ import os
 import sys
 
 import cv2
+from django.core.files.base import ContentFile
 from django.http import JsonResponse
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -360,12 +362,10 @@ def export_files(request, video_id):
             custom_name += ".json"
         file_name = custom_name
     else:
-        from django.utils import timezone
         ts = timezone.now().strftime("%Y%m%d_%H%M%S")
         base = os.path.splitext(video.file_name)[0]
         file_name = f"{base}_{ts}.json"
 
-    from django.core.files.base import ContentFile
     export_file = ExportFile(video=video, file_name=file_name, created_by=request.user)
     export_file.file.save(file_name, ContentFile(json_bytes), save=True)
 
