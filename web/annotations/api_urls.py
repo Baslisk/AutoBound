@@ -16,4 +16,7 @@ urlpatterns = [
     path("frame/<int:video_id>/<int:frame_number>/", api.get_frame, name="api_get_frame"),
     path("predict/", api.predict_annotation, name="api_predict"),
     path("track/", api.track_annotation, name="api_track"),
+    path("exports/<int:video_id>/", api.export_files, name="api_export_files"),
+    path("exports/<int:video_id>/<int:export_id>/", api.delete_export_file, name="api_delete_export_file"),
+    path("exports/<int:video_id>/<int:export_id>/download/", api.download_export_file, name="api_download_export_file"),
 ]

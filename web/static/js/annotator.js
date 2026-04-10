@@ -51,6 +51,10 @@
   const panelTabs = document.querySelectorAll(".panel-tab");
   const annotationsTab = document.getElementById("annotationsTab");
   const categoriesTab = document.getElementById("categoriesTab");
+  const filesTab = document.getElementById("filesTab");
+  const filesList = document.getElementById("filesList");
+  const filesPanelCount = document.getElementById("filesPanelCount");
+  const saveToStorageBtn = document.getElementById("saveToStorageBtn");
 
   let img = new Image();
   let scale = 1;
@@ -937,12 +941,16 @@
         for (var j = 0; j < panelTabs.length; j++) panelTabs[j].classList.remove("active");
         tab.classList.add("active");
         var target = tab.getAttribute("data-tab");
+        annotationsTab.classList.add("hidden");
+        categoriesTab.classList.add("hidden");
+        if (filesTab) filesTab.classList.add("hidden");
         if (target === "annotations") {
           annotationsTab.classList.remove("hidden");
-          categoriesTab.classList.add("hidden");
-        } else {
-          annotationsTab.classList.add("hidden");
+        } else if (target === "categories") {
           categoriesTab.classList.remove("hidden");
+        } else if (target === "files" && filesTab) {
+          filesTab.classList.remove("hidden");
+          loadExportFiles();
         }
       });
     })(panelTabs[ti]);
@@ -1123,6 +1131,98 @@
     modalCancel.addEventListener("click", function () {
       hideImportModal();
     }, { once: true });
+  }
+
+  /* ---------- save to storage / export files ---------- */
+
+  function loadExportFiles() {
+    fetch("/api/exports/" + VIDEO_ID + "/", { headers: headers() })
+      .then(function (r) { return r.json(); })
+      .then(function (files) {
+        renderExportFiles(files);
+      })
+      .catch(function () { setStatus("Failed to load saved files"); });
+  }
+
+  function renderExportFiles(files) {
+    if (!filesList) return;
+    filesList.innerHTML = "";
+    if (filesPanelCount) filesPanelCount.textContent = files.length;
+    for (var i = 0; i < files.length; i++) {
+      (function (f) {
+        var li = document.createElement("li");
+        li.className = "file-item";
+
+        var nameSpan = document.createElement("span");
+        nameSpan.className = "file-item-name";
+        nameSpan.textContent = f.file_name;
+        nameSpan.title = f.file_name;
+
+        var dateSpan = document.createElement("span");
+        dateSpan.className = "file-item-date";
+        var d = new Date(f.created_at);
+        dateSpan.textContent = d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+
+        var actions = document.createElement("span");
+        actions.className = "file-item-actions";
+
+        var dlBtn = document.createElement("button");
+        dlBtn.className = "file-action-btn";
+        dlBtn.textContent = "⬇";
+        dlBtn.title = "Download";
+        dlBtn.addEventListener("click", function () {
+          fetch("/api/exports/" + VIDEO_ID + "/" + f.id + "/download/", { headers: headers() })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              var a = document.createElement("a");
+              a.href = data.url;
+              a.download = data.file_name;
+              a.click();
+            })
+            .catch(function () { setStatus("Download failed"); });
+        });
+
+        var delBtn = document.createElement("button");
+        delBtn.className = "file-action-btn file-delete-btn";
+        delBtn.textContent = "✕";
+        delBtn.title = "Delete";
+        delBtn.addEventListener("click", function () {
+          if (!confirm("Delete " + f.file_name + "?")) return;
+          fetch("/api/exports/" + VIDEO_ID + "/" + f.id + "/", {
+            method: "DELETE",
+            headers: headers(),
+          })
+            .then(function () {
+              loadExportFiles();
+              setStatus("Deleted " + f.file_name);
+            })
+            .catch(function () { setStatus("Delete failed"); });
+        });
+
+        actions.appendChild(dlBtn);
+        actions.appendChild(delBtn);
+        li.appendChild(nameSpan);
+        li.appendChild(dateSpan);
+        li.appendChild(actions);
+        filesList.appendChild(li);
+      })(files[i]);
+    }
+  }
+
+  if (saveToStorageBtn) {
+    saveToStorageBtn.addEventListener("click", function () {
+      setStatus("Saving to storage…");
+      fetch("/api/exports/" + VIDEO_ID + "/", {
+        method: "POST",
+        headers: headers(),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          setStatus("Saved " + data.file_name + " to storage");
+          loadExportFiles();
+        })
+        .catch(function () { setStatus("Save to storage failed"); });
+    });
   }
 
   /* ---------- predict ---------- */
@@ -1364,6 +1464,9 @@
 
     // Render categories immediately (doesn't depend on image)
     renderCategoryList();
+
+    // Load saved export files
+    loadExportFiles();
   }
 
   init();

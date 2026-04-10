@@ -5,7 +5,7 @@ from django.db import connection
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from annotations.models import Annotation, Category, VideoFile
+from annotations.models import Annotation, Category, ExportFile, VideoFile
 
 
 def _reset_category_sequence():
@@ -686,3 +686,115 @@ class AnnotateViewCategoriesTest(TestCase):
         names = [c["name"] for c in cats]
         self.assertIn("object", names)
         self.assertIn("person", names)
+
+
+class ExportFileAPITest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("tester", password="pass1234")
+        self.other = User.objects.create_user("other", password="pass5678")
+        self.cat = Category.objects.create(pk=1, name="object", supercategory="none")
+        _reset_category_sequence()
+        self.video = VideoFile.objects.create(
+            file_name="clip.mp4", width=800, height=600, uploaded_by=self.user,
+        )
+        Annotation.objects.create(
+            image=self.video, category=self.cat,
+            bbox_x=10, bbox_y=20, bbox_w=30, bbox_h=40,
+            created_by=self.user,
+        )
+        self.client = APIClient()
+        self.client.login(username="tester", password="pass1234")
+
+    def test_save_to_storage(self):
+        resp = self.client.post(f"/api/exports/{self.video.pk}/")
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertIn("id", data)
+        self.assertIn("file_name", data)
+        self.assertTrue(data["file_name"].endswith(".json"))
+        self.assertEqual(ExportFile.objects.count(), 1)
+
+    def test_save_with_custom_name(self):
+        resp = self.client.post(
+            f"/api/exports/{self.video.pk}/",
+            data=json.dumps({"file_name": "my_export"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["file_name"], "my_export.json")
+
+    def test_save_with_custom_name_json_suffix(self):
+        resp = self.client.post(
+            f"/api/exports/{self.video.pk}/",
+            data=json.dumps({"file_name": "already.json"}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["file_name"], "already.json")
+
+    def test_list_export_files(self):
+        # Create two exports
+        self.client.post(f"/api/exports/{self.video.pk}/")
+        self.client.post(f"/api/exports/{self.video.pk}/")
+        resp = self.client.get(f"/api/exports/{self.video.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()), 2)
+
+    def test_list_scoped_to_user(self):
+        self.client.post(f"/api/exports/{self.video.pk}/")
+        # Login as other user — should not see exports
+        other_client = APIClient()
+        other_client.login(username="other", password="pass5678")
+        # Other user can't access this video since they didn't upload it
+        resp = other_client.get(f"/api/exports/{self.video.pk}/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_export_file(self):
+        resp = self.client.post(f"/api/exports/{self.video.pk}/")
+        export_id = resp.json()["id"]
+        resp = self.client.delete(f"/api/exports/{self.video.pk}/{export_id}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(ExportFile.objects.count(), 0)
+
+    def test_delete_nonexistent_export(self):
+        resp = self.client.delete(f"/api/exports/{self.video.pk}/9999/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_download_export_file(self):
+        resp = self.client.post(f"/api/exports/{self.video.pk}/")
+        export_id = resp.json()["id"]
+        resp = self.client.get(f"/api/exports/{self.video.pk}/{export_id}/download/")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("url", data)
+        self.assertIn("file_name", data)
+
+    def test_download_nonexistent_export(self):
+        resp = self.client.get(f"/api/exports/{self.video.pk}/9999/download/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_save_not_found_video(self):
+        resp = self.client.post("/api/exports/9999/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_list_not_found_video(self):
+        resp = self.client.get("/api/exports/9999/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_unauthenticated(self):
+        self.client.logout()
+        resp = self.client.post(f"/api/exports/{self.video.pk}/")
+        self.assertIn(resp.status_code, [401, 403])
+
+    def test_saved_file_contains_valid_coco(self):
+        """The saved file should contain valid COCO JSON with the video's annotations."""
+        resp = self.client.post(f"/api/exports/{self.video.pk}/")
+        export_id = resp.json()["id"]
+        export = ExportFile.objects.get(pk=export_id)
+        content = json.loads(export.file.read().decode("utf-8"))
+        self.assertIn("images", content)
+        self.assertIn("annotations", content)
+        self.assertIn("categories", content)
+        self.assertEqual(content["images"][0]["file_name"], "clip.mp4")
+        self.assertEqual(len(content["annotations"]), 1)
+        self.assertEqual(content["annotations"][0]["bbox"], [10, 20, 30, 40])

@@ -89,3 +89,22 @@ class Annotation(models.Model):
             "iscrowd": int(self.iscrowd),
             "frame_number": self.frame_number,
         }
+
+
+class ExportFile(models.Model):
+    video = models.ForeignKey(
+        VideoFile,
+        on_delete=models.CASCADE,
+        related_name="export_files",
+    )
+    file = models.FileField(upload_to="exports/")
+    file_name = models.CharField(max_length=255)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="export_files",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.file_name

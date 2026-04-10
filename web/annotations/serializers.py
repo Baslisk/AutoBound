@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Annotation, Category, VideoFile
+from .models import Annotation, Category, ExportFile, VideoFile
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -26,3 +26,10 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "bbox_w", "bbox_h", "area", "iscrowd", "frame_number",
         ]
         read_only_fields = ["id", "area"]
+
+
+class ExportFileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExportFile
+        fields = ["id", "video", "file_name", "created_at"]
+        read_only_fields = fields

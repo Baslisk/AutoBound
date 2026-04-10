@@ -17,6 +17,7 @@
 
     <div class="tool-group">
       <button class="btn btn-green btn-block" id="saveBtn">Save Annotations</button>
+      <button class="btn btn-accent btn-block" id="saveToStorageBtn">Save to Storage</button>
       <button class="btn btn-block" id="exportBtn">Export COCO JSON</button>
       <button class="btn btn-red btn-block" id="clearBtn">Clear All</button>
       <button class="btn btn-block btn-predict" id="predictBtn">Predict Next Frame</button>
@@ -68,6 +69,7 @@
     <div class="panel-tabs">
       <button class="panel-tab active" data-tab="annotations">Annotations</button>
       <button class="panel-tab" data-tab="categories">Categories</button>
+      <button class="panel-tab" data-tab="files">Files</button>
     </div>
 
     <div class="panel-content" id="annotationsTab">
@@ -81,6 +83,11 @@
         <button class="btn btn-sm btn-accent" id="addCategoryBtn" title="Add category">+</button>
       </div>
       <ul id="catList" class="cat-list"></ul>
+    </div>
+
+    <div class="panel-content hidden" id="filesTab">
+      <h4>Saved Files <span id="filesPanelCount" class="ann-panel-count">0</span></h4>
+      <ul id="filesList" class="file-list"></ul>
     </div>
   </aside>
 </div>
