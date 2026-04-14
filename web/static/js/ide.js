@@ -56,19 +56,20 @@
     var handles = $$(".resize-handle", layout);
     if (!handles.length) return;
 
+    // Helper to build the 5-column grid template
+    function buildGrid(leftW, rightW) {
+      return leftW + "px 4px 1fr 4px " + rightW + "px";
+    }
+
     // Restore persisted widths
     var savedLeft = loadFromStorage("sidebar-width");
     var savedRight = loadFromStorage("right-panel-width");
-    if (savedLeft && sidebar) {
-      sidebar.style.width = savedLeft + "px";
-      layout.style.gridTemplateColumns =
-        savedLeft + "px 1fr " + (savedRight || rightPanel.offsetWidth) + "px";
-    }
-    if (savedRight && rightPanel) {
-      rightPanel.style.width = savedRight + "px";
-      layout.style.gridTemplateColumns =
-        ((savedLeft || (sidebar ? sidebar.offsetWidth : 240)) + "px") +
-        " 1fr " + savedRight + "px";
+    var leftW = savedLeft || (sidebar ? sidebar.offsetWidth : 240);
+    var rightW = savedRight || (rightPanel ? rightPanel.offsetWidth : 260);
+    if (savedLeft || savedRight) {
+      if (sidebar) sidebar.style.width = leftW + "px";
+      if (rightPanel) rightPanel.style.width = rightW + "px";
+      layout.style.gridTemplateColumns = buildGrid(leftW, rightW);
     }
 
     handles.forEach(function (handle) {
@@ -107,22 +108,20 @@
         var newLeft = clamp(
           startLeftW + dx,
           MIN_SIDEBAR_WIDTH,
-          layoutWidth - MIN_MAIN_WIDTH - (rightPanel ? rightPanel.offsetWidth : 0)
+          layoutWidth - MIN_MAIN_WIDTH - (rightPanel ? rightPanel.offsetWidth : 0) - 8
         );
         sidebar.style.width = newLeft + "px";
         layout.style.gridTemplateColumns =
-          newLeft + "px 1fr " +
-          (rightPanel ? rightPanel.offsetWidth : 0) + "px";
+          buildGrid(newLeft, rightPanel ? rightPanel.offsetWidth : 0);
       } else if (!isLeftHandle && rightPanel) {
         var newRight = clamp(
           startRightW - dx,
           MIN_SIDEBAR_WIDTH,
-          layoutWidth - MIN_MAIN_WIDTH - (sidebar ? sidebar.offsetWidth : 0)
+          layoutWidth - MIN_MAIN_WIDTH - (sidebar ? sidebar.offsetWidth : 0) - 8
         );
         rightPanel.style.width = newRight + "px";
         layout.style.gridTemplateColumns =
-          (sidebar ? sidebar.offsetWidth : 0) + "px 1fr " +
-          newRight + "px";
+          buildGrid(sidebar ? sidebar.offsetWidth : 0, newRight);
       }
     }
 
@@ -197,6 +196,7 @@
     $$(".menu-dropdown-item").forEach(function (el) {
       el.addEventListener("click", function (e) {
         e.stopPropagation();
+        if (el.classList.contains("disabled")) return;
         var action = el.getAttribute("data-action");
         if (action) executeMenuAction(action);
         closeAllDropdowns();
@@ -237,6 +237,9 @@
         break;
       case "predict":
         clickIfExists("#predictBtn");
+        break;
+      case "track":
+        clickIfExists("#trackBtn");
         break;
       case "toggle-left-panel":
         togglePanel(".sidebar");
@@ -300,7 +303,7 @@
     var rightPanel = $(".right-panel", layout);
     var leftW = sidebar ? sidebar.offsetWidth : 0;
     var rightW = rightPanel ? rightPanel.offsetWidth : 0;
-    layout.style.gridTemplateColumns = leftW + "px 1fr " + rightW + "px";
+    layout.style.gridTemplateColumns = leftW + "px 4px 1fr 4px " + rightW + "px";
   }
 
   function expandPanel(panel, layout, key, isLeft) {
@@ -315,7 +318,7 @@
     var rightPanel = $(".right-panel", layout);
     var leftW = sidebar ? sidebar.offsetWidth : 0;
     var rightW = rightPanel ? rightPanel.offsetWidth : 0;
-    layout.style.gridTemplateColumns = leftW + "px 1fr " + rightW + "px";
+    layout.style.gridTemplateColumns = leftW + "px 4px 1fr 4px " + rightW + "px";
   }
 
   function togglePanel(sel) {
@@ -436,5 +439,59 @@
     initMenuBar();
     initKeyboardShortcuts();
     initStatusBarWatcher();
+    initActivityBar();
   });
+
+  /* ------------------------------------------------------------------ */
+  /*  6. Activity Bar                                                    */
+  /* ------------------------------------------------------------------ */
+  function initActivityBar() {
+    var activityIcons = $$(".activity-icon");
+    if (!activityIcons.length) return;
+
+    activityIcons.forEach(function (icon) {
+      icon.addEventListener("click", function () {
+        var panel = icon.getAttribute("data-panel");
+        if (!panel) return;
+
+        // Handle sidebar toggle (explorer icon)
+        if (panel === "sidebar") {
+          togglePanel(".sidebar");
+          // Update active state
+          activityIcons.forEach(function (i) { i.classList.remove("active"); });
+          if (!collapsedPanels["sidebar"]) {
+            icon.classList.add("active");
+          }
+          return;
+        }
+
+        // Handle right panel tabs
+        var tabMap = {
+          "annotations": "annotations",
+          "tracks": "tracks",
+          "categories": "categories",
+          "files": "files"
+        };
+        var tabName = tabMap[panel];
+        if (!tabName) return;
+
+        // If right panel is collapsed, expand it first
+        if (collapsedPanels["right-panel"]) {
+          togglePanel(".right-panel");
+        }
+
+        // Click the corresponding panel tab
+        var tab = $(".panel-tab[data-tab='" + tabName + "']");
+        if (tab) tab.click();
+
+        // Update active state on non-sidebar icons
+        activityIcons.forEach(function (i) {
+          if (i.getAttribute("data-panel") !== "sidebar") {
+            i.classList.remove("active");
+          }
+        });
+        icon.classList.add("active");
+      });
+    });
+  }
 })();

@@ -69,14 +69,29 @@ body {
 }
 .nav-brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.4rem;
+}
+.brand-icon {
+  font-size: 0.9rem;
+  color: var(--accent);
+  line-height: 1;
 }
 .brand-name {
   font-size: 0.8rem;
   font-weight: 700;
   color: var(--accent);
   letter-spacing: 0.02em;
+}
+.nav-title {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  font-family: var(--font-mono);
 }
 .brand-version {
   font-size: 0.65rem;
@@ -158,16 +173,25 @@ body {
   cursor: pointer;
   transition: background 0.1s;
 }
+.menu-dropdown-item.disabled {
+  color: var(--text-secondary);
+  opacity: 0.5;
+  cursor: default;
+}
+.menu-dropdown-item.disabled:hover {
+  background: transparent;
+  color: var(--text-secondary);
+}
 .menu-dropdown-item:hover {
   background: var(--accent);
   color: #fff;
 }
-.menu-dropdown-item span.shortcut {
+.menu-dropdown-item .menu-shortcut {
   font-size: 0.7rem;
   color: var(--text-secondary);
   font-family: var(--font-mono);
 }
-.menu-dropdown-item:hover span.shortcut {
+.menu-dropdown-item:hover .menu-shortcut {
   color: rgba(255, 255, 255, 0.7);
 }
 .menu-separator {
@@ -272,9 +296,9 @@ body {
 
 .ide-layout {
   display: grid;
-  grid-template-columns: 48px 240px 4px 1fr 4px 260px;
+  grid-template-columns: 48px 1fr;
   grid-template-rows: 1fr;
-  height: calc(100vh - 35px - 24px);
+  height: calc(100vh - 35px - 30px - 24px);
   overflow: hidden;
 }
 
@@ -373,6 +397,12 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 1.25rem 1rem;
+}
+/* When annotate page, container is full-width */
+.container:has(.ide-layout) {
+  max-width: 100%;
+  padding: 0;
+  margin: 0;
 }
 
 /* ==================== 11. Alerts ==================== */
@@ -477,6 +507,23 @@ body {
   flex-direction: column;
   gap: 1.25rem;
   padding: 1.25rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.workspace-welcome {
+  text-align: center;
+  padding: 2rem 0 0.5rem;
+}
+.workspace-welcome h1 {
+  font-size: 1.8rem;
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+.workspace-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  padding: 1rem;
 }
 
 .upload-section {
@@ -604,10 +651,11 @@ body {
 
 .annotate-layout {
   display: grid;
-  grid-template-columns: 240px 1fr 260px;
+  grid-template-columns: 240px 4px 1fr 4px 260px;
   gap: 0;
-  height: calc(100vh - 35px);
+  height: 100%;
   padding: 0;
+  overflow: hidden;
 }
 
 /* ==================== 16. Sidebar ==================== */
@@ -896,6 +944,15 @@ body {
   align-items: center;
   gap: 0.4rem;
   user-select: none;
+}
+.panel-header-count {
+  font-size: 0.65rem;
+  font-weight: 600;
+  background: var(--accent);
+  color: #fff;
+  padding: 0 0.4rem;
+  border-radius: 8px;
+  line-height: 1.4;
 }
 
 /* ==================== 23. Annotations Panel ==================== */
