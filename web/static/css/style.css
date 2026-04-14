@@ -41,6 +41,32 @@
   --font-mono: "Cascadia Code", "Fira Code", "JetBrains Mono", "SF Mono", Consolas, monospace;
 }
 
+/* ==================== 1b. Light Theme Overrides ==================== */
+
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --bg-card: #ffffff;
+  --bg-input: #f6f8fa;
+  --bg-titlebar: #f0f0f0;
+  --bg-hover: #e8eaed;
+
+  --text-primary: #1f2328;
+  --text-secondary: #656d76;
+
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+  --accent-muted: rgba(124, 58, 237, 0.1);
+
+  --green: #1a7f37;
+  --red: #cf222e;
+  --blue: #0969da;
+  --yellow: #9a6700;
+
+  --border: #d0d7de;
+  --border-hover: #bbc0c7;
+}
+
 /* ==================== 2. Reset & Base ==================== */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -71,6 +97,13 @@ body {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  text-decoration: none;
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+}
+.nav-brand:hover .brand-name,
+.nav-brand:hover .brand-icon {
+  opacity: 0.8;
 }
 .brand-icon {
   font-size: 0.9rem;
@@ -120,6 +153,22 @@ body {
   color: var(--text-secondary);
   font-size: 0.75rem;
   -webkit-app-region: no-drag;
+}
+
+/* Theme toggle button */
+.theme-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.15rem 0.4rem;
+  line-height: 1;
+  border-radius: 3px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.theme-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
 }
 
 /* ==================== 4. Menu Bar (new) ==================== */
@@ -205,13 +254,18 @@ body {
 .activity-bar {
   width: 48px;
   background: var(--bg-titlebar);
-  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 0.5rem 0;
   gap: 0.25rem;
   flex-shrink: 0;
+}
+.activity-bar-left {
+  border-right: 1px solid var(--border);
+}
+.activity-bar-right {
+  border-left: 1px solid var(--border);
 }
 .activity-icon {
   display: flex;
@@ -234,6 +288,13 @@ body {
   color: var(--text-primary);
   border-left-color: var(--accent);
   background: var(--accent-muted);
+}
+.activity-bar-right .activity-icon {
+  border-left: none;
+  border-right: 2px solid transparent;
+}
+.activity-bar-right .activity-icon.active {
+  border-right-color: var(--accent);
 }
 
 /* ==================== 6. Status Bar — Bottom (new) ==================== */
@@ -296,7 +357,7 @@ body {
 
 .ide-layout {
   display: grid;
-  grid-template-columns: 48px 1fr;
+  grid-template-columns: 48px 1fr 48px;
   grid-template-rows: 1fr;
   height: calc(100vh - 35px - 30px - 24px);
   overflow: hidden;
@@ -670,10 +731,26 @@ body {
   gap: 0.6rem;
   overflow-y: auto;
 }
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+.sidebar-header h3 {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sidebar h3 {
   font-size: 0.8rem;
   word-break: break-all;
   font-weight: 600;
+}
+.sidebar.collapsed .panel-collapse-btn {
+  transform: rotate(180deg);
 }
 .sidebar .meta {
   font-size: 0.72rem;
@@ -912,6 +989,49 @@ body {
   border-bottom-color: var(--accent);
   background: var(--bg-secondary);
 }
+
+/* Panel collapse/expand toggle button */
+.panel-collapse-btn {
+  flex-shrink: 0;
+  width: 28px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.panel-collapse-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.right-panel.collapsed .panel-collapse-btn {
+  transform: rotate(180deg);
+}
+.sidebar .panel-collapse-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+  border-radius: 2px;
+}
+.sidebar .panel-collapse-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
 .panel-content {
   flex: 1;
   display: flex;

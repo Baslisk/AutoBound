@@ -440,32 +440,36 @@
     initKeyboardShortcuts();
     initStatusBarWatcher();
     initActivityBar();
+    initThemeToggle();
+    initPanelCollapseBtn();
   });
 
   /* ------------------------------------------------------------------ */
   /*  6. Activity Bar                                                    */
   /* ------------------------------------------------------------------ */
   function initActivityBar() {
-    var activityIcons = $$(".activity-icon");
-    if (!activityIcons.length) return;
+    // Left activity bar — controls the sidebar (explorer)
+    var leftIcons = $$(".activity-bar-left .activity-icon");
+    leftIcons.forEach(function (icon) {
+      icon.addEventListener("click", function () {
+        var panel = icon.getAttribute("data-panel");
+        if (panel === "sidebar") {
+          togglePanel(".sidebar");
+          leftIcons.forEach(function (i) { i.classList.remove("active"); });
+          if (!collapsedPanels["sidebar"]) {
+            icon.classList.add("active");
+          }
+        }
+      });
+    });
 
-    activityIcons.forEach(function (icon) {
+    // Right activity bar — controls the right panel tabs
+    var rightIcons = $$(".activity-bar-right .activity-icon");
+    rightIcons.forEach(function (icon) {
       icon.addEventListener("click", function () {
         var panel = icon.getAttribute("data-panel");
         if (!panel) return;
 
-        // Handle sidebar toggle (explorer icon)
-        if (panel === "sidebar") {
-          togglePanel(".sidebar");
-          // Update active state
-          activityIcons.forEach(function (i) { i.classList.remove("active"); });
-          if (!collapsedPanels["sidebar"]) {
-            icon.classList.add("active");
-          }
-          return;
-        }
-
-        // Handle right panel tabs
         var tabMap = {
           "annotations": "annotations",
           "tracks": "tracks",
@@ -484,14 +488,65 @@
         var tab = $(".panel-tab[data-tab='" + tabName + "']");
         if (tab) tab.click();
 
-        // Update active state on non-sidebar icons
-        activityIcons.forEach(function (i) {
-          if (i.getAttribute("data-panel") !== "sidebar") {
-            i.classList.remove("active");
-          }
-        });
+        // Update active state
+        rightIcons.forEach(function (i) { i.classList.remove("active"); });
         icon.classList.add("active");
       });
     });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  7. Theme Toggle (Light / Dark)                                    */
+  /* ------------------------------------------------------------------ */
+  function initThemeToggle() {
+    var btn = $("#themeToggle");
+    if (!btn) return;
+
+    var stored = loadFromStorage("theme");
+    if (stored === "light") {
+      document.documentElement.setAttribute("data-theme", "light");
+      btn.textContent = "☀️";
+    }
+
+    btn.addEventListener("click", function () {
+      var current = document.documentElement.getAttribute("data-theme");
+      if (current === "light") {
+        document.documentElement.removeAttribute("data-theme");
+        btn.textContent = "🌙";
+        saveToStorage("theme", "dark");
+      } else {
+        document.documentElement.setAttribute("data-theme", "light");
+        btn.textContent = "☀️";
+        saveToStorage("theme", "light");
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  8. Panel Collapse Buttons                                         */
+  /* ------------------------------------------------------------------ */
+  function initPanelCollapseBtn() {
+    var rightBtn = $("#panelCollapseBtn");
+    if (rightBtn) {
+      rightBtn.addEventListener("click", function () {
+        togglePanel(".right-panel");
+      });
+    }
+
+    var leftBtn = $("#leftPanelCollapseBtn");
+    if (leftBtn) {
+      leftBtn.addEventListener("click", function () {
+        togglePanel(".sidebar");
+        // Sync active state on left activity bar
+        var leftIcons = $$(".activity-bar-left .activity-icon");
+        leftIcons.forEach(function (i) {
+          if (collapsedPanels["sidebar"]) {
+            i.classList.remove("active");
+          } else {
+            i.classList.add("active");
+          }
+        });
+      });
+    }
   }
 })();

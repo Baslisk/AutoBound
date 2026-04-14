@@ -6,16 +6,15 @@
 
 {% block content %}
 <div class="ide-layout">
-  <div class="activity-bar">
+  <div class="activity-bar activity-bar-left">
     <button class="activity-icon active" data-panel="sidebar" title="Explorer">📁</button>
-    <button class="activity-icon" data-panel="annotations" title="Annotations">📝</button>
-    <button class="activity-icon" data-panel="tracks" title="Tracks">🎯</button>
-    <button class="activity-icon" data-panel="categories" title="Categories">🏷️</button>
-    <button class="activity-icon" data-panel="files" title="Files">📄</button>
   </div>
   <div class="annotate-layout">
-    <aside class="sidebar">
-      <h3>{{ video.file_name }}</h3>
+    <aside class="sidebar" id="leftPanel">
+      <div class="sidebar-header">
+        <h3>{{ video.file_name }}</h3>
+        <button class="panel-collapse-btn" id="leftPanelCollapseBtn" title="Minimize panel">◀</button>
+      </div>
       <p class="meta">{{ video.width }}×{{ video.height }}</p>
 
       <div class="tool-group">
@@ -92,6 +91,7 @@
         <button class="panel-tab" data-tab="tracks">Tracks</button>
         <button class="panel-tab" data-tab="categories">Categories</button>
         <button class="panel-tab" data-tab="files">Files</button>
+        <button class="panel-collapse-btn" id="panelCollapseBtn" title="Minimize panel">▶</button>
       </div>
 
       <div class="panel-content" id="annotationsTab">
@@ -125,6 +125,12 @@
         <ul id="filesList" class="file-list"></ul>
       </div>
     </aside>
+  </div>
+  <div class="activity-bar activity-bar-right">
+    <button class="activity-icon active" data-panel="annotations" title="Annotations">📝</button>
+    <button class="activity-icon" data-panel="tracks" title="Tracks">🎯</button>
+    <button class="activity-icon" data-panel="categories" title="Categories">🏷️</button>
+    <button class="activity-icon" data-panel="files" title="Files">📄</button>
   </div>
 </div>
 
