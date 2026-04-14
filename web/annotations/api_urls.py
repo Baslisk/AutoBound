@@ -6,6 +6,7 @@ from . import api
 router = DefaultRouter()
 router.register(r"annotations", api.AnnotationViewSet, basename="annotation")
 router.register(r"categories", api.CategoryViewSet, basename="category")
+router.register(r"tracks", api.TrackViewSet, basename="track")
 
 urlpatterns = [
     path("annotations/clear/", api.clear_annotations, name="api_clear_annotations"),

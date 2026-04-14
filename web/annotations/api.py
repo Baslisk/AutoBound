@@ -19,8 +19,8 @@ if _project_root not in sys.path:
 
 from frame_cache import FrameCache
 
-from .models import Annotation, Category, ExportFile, VideoFile
-from .serializers import AnnotationSerializer, CategorySerializer, ExportFileSerializer
+from .models import Annotation, Category, ExportFile, Track, VideoFile
+from .serializers import AnnotationSerializer, CategorySerializer, ExportFileSerializer, TrackSerializer
 from .utils import get_local_video_path
 
 # Module-level shared cache instance (lives for the duration of the process)
@@ -47,6 +47,25 @@ class AnnotationViewSet(viewsets.ModelViewSet):
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
     queryset = Category.objects.all()
+
+
+class TrackViewSet(viewsets.ModelViewSet):
+    serializer_class = TrackSerializer
+
+    def get_queryset(self):
+        qs = Track.objects.filter(created_by=self.request.user)
+        video_id = self.request.query_params.get("video")
+        if video_id is not None:
+            qs = qs.filter(video_id=video_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    def perform_destroy(self, instance):
+        # Null out track FK on orphaned annotations before deleting
+        instance.annotations.update(track=None)
+        instance.delete()
 
 
 @api_view(["DELETE"])
@@ -81,6 +100,7 @@ def export_coco(request, video_id):
 
     annotations = video.annotations.all()
     categories = Category.objects.all()
+    tracks = video.tracks.all()
 
     coco = {
         "images": [video.to_coco_dict()],
@@ -89,6 +109,7 @@ def export_coco(request, video_id):
             {"id": c.pk, "name": c.name, "supercategory": c.supercategory, "color": c.color}
             for c in categories
         ],
+        "tracks": [t.to_coco_dict() for t in tracks],
     }
     return Response(coco)
 
@@ -146,11 +167,30 @@ def import_coco(request):
             image_id_map[img_data["id"]] = video
 
     count = 0
+    track_id_map = {}  # old track_id -> new Track pk
+
+    # Import tracks from COCO data
+    for track_data in data.get("tracks", []):
+        old_id = track_data.get("id")
+        if old_id is not None and target_video is not None:
+            t, _ = Track.objects.get_or_create(
+                name=track_data.get("name", "Track"),
+                video=target_video,
+                created_by=request.user,
+                defaults={
+                    "color": track_data.get("color", "#3b82f6"),
+                    "category_id": track_data.get("category_id", 1),
+                },
+            )
+            track_id_map[old_id] = t.pk
+
     for ann_data in data.get("annotations", []):
         video = image_id_map.get(ann_data.get("image_id"))
         if video is None:
             continue
         bbox = ann_data.get("bbox", [0, 0, 0, 0])
+        raw_track_id = ann_data.get("track_id")
+        track_id = track_id_map.get(raw_track_id) if raw_track_id is not None else None
         Annotation.objects.create(
             image=video,
             category_id=ann_data.get("category_id", 1),
@@ -160,6 +200,7 @@ def import_coco(request):
             bbox_h=bbox[3],
             frame_number=ann_data.get("frame_number", 0),
             iscrowd=bool(ann_data.get("iscrowd", 0)),
+            track_id=track_id,
             created_by=request.user,
         )
         count += 1
@@ -343,6 +384,7 @@ def export_files(request, video_id):
     # POST — generate COCO JSON and save to storage
     annotations = video.annotations.all()
     categories = Category.objects.all()
+    tracks = video.tracks.all()
 
     coco = {
         "images": [video.to_coco_dict()],
@@ -351,6 +393,7 @@ def export_files(request, video_id):
             {"id": c.pk, "name": c.name, "supercategory": c.supercategory, "color": c.color}
             for c in categories
         ],
+        "tracks": [t.to_coco_dict() for t in tracks],
     }
 
     json_bytes = json.dumps(coco, indent=2).encode("utf-8")
