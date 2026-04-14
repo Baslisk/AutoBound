@@ -2,114 +2,130 @@
 {% load static %}
 {% block title %}Annotate — {{ video.file_name }}{% endblock %}
 
+{% block nav_title %}{{ video.file_name }}{% endblock %}
+
 {% block content %}
-<div class="annotate-layout">
-  <aside class="sidebar">
-    <h3>{{ video.file_name }}</h3>
-    <p class="meta">{{ video.width }}×{{ video.height }}</p>
-
-    <div class="tool-group">
-      <label class="checkbox-label">
-        <input type="checkbox" id="showBboxes" checked>
-        <span>Show Bounding Boxes</span>
-      </label>
-    </div>
-
-    <div class="tool-group">
-      <button class="btn btn-green btn-block" id="saveBtn">Save Annotations</button>
-      <button class="btn btn-accent btn-block" id="saveToStorageBtn">Save to Storage</button>
-      <button class="btn btn-block" id="exportBtn">Export COCO JSON</button>
-      <button class="btn btn-red btn-block" id="clearBtn">Clear All</button>
-      <button class="btn btn-block btn-predict" id="predictBtn">Predict Next Frame</button>
-      <button class="btn btn-block btn-track" id="trackBtn">Track to End</button>
-    </div>
-
-    <div class="tool-group">
-      <label class="btn btn-block btn-file">
-        Import COCO JSON
-        <input type="file" id="importInput" accept=".json" hidden>
-      </label>
-    </div>
-
-    <div id="trackIndicator" class="track-indicator hidden">
-      <span class="track-indicator-dot" id="trackIndicatorDot"></span>
-      <span id="trackIndicatorName">No track</span>
-      <button class="track-indicator-clear" id="trackIndicatorClear" title="Deselect track">✕</button>
-    </div>
-    <div id="statusBar" class="status-bar">Ready</div>
-    <div id="bboxCount" class="bbox-count">0 annotations</div>
-  </aside>
-
-  <div class="canvas-wrapper">
-    <div class="canvas-area">
-      <canvas id="annotationCanvas"></canvas>
-      <canvas id="bboxOverlay"></canvas>
-    </div>
-
-    <div class="frame-nav">
-      <button class="btn btn-sm" id="prevFrameBtn" title="Previous frame (←)">◀ Prev</button>
-      <button class="btn btn-sm btn-accent" id="playPauseBtn" title="Play / Pause (Space)">▶ Play</button>
-      <span id="frameIndicator" class="frame-indicator">Frame 0 / 0</span>
-      <button class="btn btn-sm" id="nextFrameBtn" title="Next frame (→)">Next ▶</button>
-      <select id="fpsSelect" class="fps-select" title="Playback frame rate">
-        <option value="1">1 fps</option>
-        <option value="5">5 fps</option>
-        <option value="10">10 fps</option>
-        <option value="15">15 fps</option>
-        <option value="24">24 fps</option>
-        <option value="25">25 fps</option>
-        <option value="30">30 fps</option>
-        <option value="60">60 fps</option>
-      </select>
-    </div>
-    <div class="frame-slider-container">
-      <div class="time-display">
-        <span id="currentTime">0:00</span>
-        <span id="remainingTime">-0:00</span>
-      </div>
-      <input type="range" id="frameSlider" class="frame-slider" min="0" max="0" value="0" step="1">
-    </div>
+<div class="ide-layout">
+  <div class="activity-bar">
+    <button class="activity-icon active" data-panel="sidebar" title="Explorer">📁</button>
+    <button class="activity-icon" data-panel="annotations" title="Annotations">📝</button>
+    <button class="activity-icon" data-panel="tracks" title="Tracks">🎯</button>
+    <button class="activity-icon" data-panel="categories" title="Categories">🏷️</button>
+    <button class="activity-icon" data-panel="files" title="Files">📄</button>
   </div>
+  <div class="annotate-layout">
+    <aside class="sidebar">
+      <h3>{{ video.file_name }}</h3>
+      <p class="meta">{{ video.width }}×{{ video.height }}</p>
 
-  <aside class="right-panel" id="rightPanel">
-    <div class="panel-tabs">
-      <button class="panel-tab active" data-tab="annotations">Annotations</button>
-      <button class="panel-tab" data-tab="tracks">Tracks</button>
-      <button class="panel-tab" data-tab="categories">Categories</button>
-      <button class="panel-tab" data-tab="files">Files</button>
-    </div>
-
-    <div class="panel-content" id="annotationsTab">
-      <h4>Annotations <span id="annPanelCount" class="ann-panel-count">0</span></h4>
-      <ul id="annList" class="ann-list"></ul>
-    </div>
-
-    <div class="panel-content hidden" id="tracksTab">
-      <div class="tracks-header">
-        <h4>Tracks <span id="trackPanelCount" class="ann-panel-count">0</span></h4>
-        <button class="btn btn-sm btn-accent" id="addTrackBtn" title="New track">+ Track</button>
+      <div class="tool-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="showBboxes" checked>
+          <span>Show Bounding Boxes</span>
+        </label>
       </div>
-      <ul id="trackList" class="track-list"></ul>
-      <div id="trackEmptyState" class="panel-empty-state">
-        <span class="panel-empty-icon">⛶</span>
-        <p>No tracks yet</p>
-        <p class="panel-empty-hint">Create a track, then draw bboxes to add annotations</p>
+
+      <div class="tool-group">
+        <button class="btn btn-green btn-block" id="saveBtn">Save Annotations</button>
+        <button class="btn btn-accent btn-block" id="saveToStorageBtn">Save to Storage</button>
+        <button class="btn btn-block" id="exportBtn">Export COCO JSON</button>
+        <button class="btn btn-red btn-block" id="clearBtn">Clear All</button>
+        <button class="btn btn-block btn-predict" id="predictBtn">Predict Next Frame</button>
+        <button class="btn btn-block btn-track" id="trackBtn">Track to End</button>
+      </div>
+
+      <div class="tool-group">
+        <label class="btn btn-block btn-file">
+          Import COCO JSON
+          <input type="file" id="importInput" accept=".json" hidden>
+        </label>
+      </div>
+
+      <div id="trackIndicator" class="track-indicator hidden">
+        <span class="track-indicator-dot" id="trackIndicatorDot"></span>
+        <span id="trackIndicatorName">No track</span>
+        <button class="track-indicator-clear" id="trackIndicatorClear" title="Deselect track">✕</button>
+      </div>
+      <div id="bboxCount" class="bbox-count">0 annotations</div>
+    </aside>
+
+    <div class="resize-handle resize-handle-vertical" data-resize="left"></div>
+
+    <div class="canvas-wrapper">
+      <div class="canvas-area">
+        <canvas id="annotationCanvas"></canvas>
+        <canvas id="bboxOverlay"></canvas>
+      </div>
+
+      <div class="timeline-bar">
+        <div class="frame-nav">
+          <button class="btn btn-sm" id="prevFrameBtn" title="Previous frame (←)">◀ Prev</button>
+          <button class="btn btn-sm btn-accent" id="playPauseBtn" title="Play / Pause (Space)">▶ Play</button>
+          <span id="frameIndicator" class="frame-indicator">Frame 0 / 0</span>
+          <button class="btn btn-sm" id="nextFrameBtn" title="Next frame (→)">Next ▶</button>
+          <select id="fpsSelect" class="fps-select" title="Playback frame rate">
+            <option value="1">1 fps</option>
+            <option value="5">5 fps</option>
+            <option value="10">10 fps</option>
+            <option value="15">15 fps</option>
+            <option value="24">24 fps</option>
+            <option value="25">25 fps</option>
+            <option value="30">30 fps</option>
+            <option value="60">60 fps</option>
+          </select>
+        </div>
+        <div class="frame-slider-container">
+          <div class="time-display">
+            <span id="currentTime">0:00</span>
+            <span id="remainingTime">-0:00</span>
+          </div>
+          <input type="range" id="frameSlider" class="frame-slider" min="0" max="0" value="0" step="1">
+        </div>
       </div>
     </div>
 
-    <div class="panel-content hidden" id="categoriesTab">
-      <div class="cat-header">
-        <h4>Categories</h4>
-        <button class="btn btn-sm btn-accent" id="addCategoryBtn" title="Add category">+</button>
-      </div>
-      <ul id="catList" class="cat-list"></ul>
-    </div>
+    <div class="resize-handle resize-handle-vertical" data-resize="right"></div>
 
-    <div class="panel-content hidden" id="filesTab">
-      <h4>Saved Files <span id="filesPanelCount" class="ann-panel-count">0</span></h4>
-      <ul id="filesList" class="file-list"></ul>
-    </div>
-  </aside>
+    <aside class="right-panel" id="rightPanel">
+      <div class="panel-tabs">
+        <button class="panel-tab active" data-tab="annotations">Annotations</button>
+        <button class="panel-tab" data-tab="tracks">Tracks</button>
+        <button class="panel-tab" data-tab="categories">Categories</button>
+        <button class="panel-tab" data-tab="files">Files</button>
+      </div>
+
+      <div class="panel-content" id="annotationsTab">
+        <h4>Annotations <span id="annPanelCount" class="ann-panel-count">0</span></h4>
+        <ul id="annList" class="ann-list"></ul>
+      </div>
+
+      <div class="panel-content hidden" id="tracksTab">
+        <div class="tracks-header">
+          <h4>Tracks <span id="trackPanelCount" class="ann-panel-count">0</span></h4>
+          <button class="btn btn-sm btn-accent" id="addTrackBtn" title="New track">+ Track</button>
+        </div>
+        <ul id="trackList" class="track-list"></ul>
+        <div id="trackEmptyState" class="panel-empty-state">
+          <span class="panel-empty-icon">⛶</span>
+          <p>No tracks yet</p>
+          <p class="panel-empty-hint">Create a track, then draw bboxes to add annotations</p>
+        </div>
+      </div>
+
+      <div class="panel-content hidden" id="categoriesTab">
+        <div class="cat-header">
+          <h4>Categories</h4>
+          <button class="btn btn-sm btn-accent" id="addCategoryBtn" title="Add category">+</button>
+        </div>
+        <ul id="catList" class="cat-list"></ul>
+      </div>
+
+      <div class="panel-content hidden" id="filesTab">
+        <h4>Saved Files <span id="filesPanelCount" class="ann-panel-count">0</span></h4>
+        <ul id="filesList" class="file-list"></ul>
+      </div>
+    </aside>
+  </div>
 </div>
 
 <div id="importModal" class="modal-overlay hidden">
