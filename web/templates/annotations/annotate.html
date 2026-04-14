@@ -17,6 +17,7 @@
 
     <div class="tool-group">
       <button class="btn btn-green btn-block" id="saveBtn">Save Annotations</button>
+      <button class="btn btn-accent btn-block" id="saveToStorageBtn">Save to Storage</button>
       <button class="btn btn-block" id="exportBtn">Export COCO JSON</button>
       <button class="btn btn-red btn-block" id="clearBtn">Clear All</button>
       <button class="btn btn-block btn-predict" id="predictBtn">Predict Next Frame</button>
@@ -30,6 +31,11 @@
       </label>
     </div>
 
+    <div id="trackIndicator" class="track-indicator hidden">
+      <span class="track-indicator-dot" id="trackIndicatorDot"></span>
+      <span id="trackIndicatorName">No track</span>
+      <button class="track-indicator-clear" id="trackIndicatorClear" title="Deselect track">✕</button>
+    </div>
     <div id="statusBar" class="status-bar">Ready</div>
     <div id="bboxCount" class="bbox-count">0 annotations</div>
   </aside>
@@ -37,6 +43,7 @@
   <div class="canvas-wrapper">
     <div class="canvas-area">
       <canvas id="annotationCanvas"></canvas>
+      <canvas id="bboxOverlay"></canvas>
     </div>
 
     <div class="frame-nav">
@@ -67,12 +74,27 @@
   <aside class="right-panel" id="rightPanel">
     <div class="panel-tabs">
       <button class="panel-tab active" data-tab="annotations">Annotations</button>
+      <button class="panel-tab" data-tab="tracks">Tracks</button>
       <button class="panel-tab" data-tab="categories">Categories</button>
+      <button class="panel-tab" data-tab="files">Files</button>
     </div>
 
     <div class="panel-content" id="annotationsTab">
       <h4>Annotations <span id="annPanelCount" class="ann-panel-count">0</span></h4>
       <ul id="annList" class="ann-list"></ul>
+    </div>
+
+    <div class="panel-content hidden" id="tracksTab">
+      <div class="tracks-header">
+        <h4>Tracks <span id="trackPanelCount" class="ann-panel-count">0</span></h4>
+        <button class="btn btn-sm btn-accent" id="addTrackBtn" title="New track">+ Track</button>
+      </div>
+      <ul id="trackList" class="track-list"></ul>
+      <div id="trackEmptyState" class="panel-empty-state">
+        <span class="panel-empty-icon">⛶</span>
+        <p>No tracks yet</p>
+        <p class="panel-empty-hint">Create a track, then draw bboxes to add annotations</p>
+      </div>
     </div>
 
     <div class="panel-content hidden" id="categoriesTab">
@@ -81,6 +103,11 @@
         <button class="btn btn-sm btn-accent" id="addCategoryBtn" title="Add category">+</button>
       </div>
       <ul id="catList" class="cat-list"></ul>
+    </div>
+
+    <div class="panel-content hidden" id="filesTab">
+      <h4>Saved Files <span id="filesPanelCount" class="ann-panel-count">0</span></h4>
+      <ul id="filesList" class="file-list"></ul>
     </div>
   </aside>
 </div>
@@ -117,8 +144,7 @@
     </div>
     <div class="form-group">
       <label>Color</label>
-      <div class="color-palette" id="colorPalette"></div>
-      <input type="color" id="newCatColorOther" style="display:none" value="#00FF00">
+      <div id="newCatColorPicker"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-green" id="newCatSaveBtn">Create</button>
@@ -126,9 +152,62 @@
     </div>
   </div>
 </div>
+
+<div id="trackPickerModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h3>Assign Track</h3>
+    <ul id="trackPickerList" class="track-picker-list"></ul>
+    <div class="modal-actions">
+      <button class="btn btn-sm btn-red" id="pickerRemoveTrackBtn">Remove Track</button>
+      <button class="btn" id="trackPickerCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="confirmDeleteModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h3 id="confirmDeleteTitle">Confirm Delete</h3>
+    <p id="confirmDeleteMsg">Are you sure?</p>
+    <label class="checkbox-label confirm-dont-ask">
+      <input type="checkbox" id="confirmDontAsk">
+      <span>Don't ask again this session</span>
+    </label>
+    <div class="modal-actions">
+      <button class="btn btn-red" id="confirmDeleteYes">Delete</button>
+      <button class="btn" id="confirmDeleteNo">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="colorEditModal" class="modal-overlay hidden">
+  <div class="modal-card">
+    <h3 id="colorEditTitle">Edit Color</h3>
+    <div id="colorEditPickerContainer"></div>
+    <div class="modal-actions">
+      <button class="btn btn-green" id="colorEditSave">Save</button>
+      <button class="btn" id="colorEditCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="toastContainer" class="toast-container"></div>
 {% endblock %}
 
 {% block extra_scripts %}
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://esm.sh/three@0.168.0"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { Text } from "https://esm.sh/troika-three-text@0.50.1?external=three";
+window.THREE = THREE;
+window.TroikaText = Text;
+window.dispatchEvent(new Event("troika-ready"));
+</script>
 <script>
   const VIDEO_ID = {{ video.id }};
   const FRAME_URL = "{{ frame_url }}";

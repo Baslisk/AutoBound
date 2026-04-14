@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from django.test import TestCase
 
-from annotations.models import Annotation, Category, VideoFile
+from annotations.models import Annotation, Category, ExportFile, VideoFile
 
 
 class CategoryModelTest(TestCase):
@@ -110,3 +110,25 @@ class AnnotationModelTest(TestCase):
             iscrowd=True, created_by=self.user,
         )
         self.assertEqual(ann.to_coco_dict()["iscrowd"], 1)
+
+
+class ExportFileModelTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("tester", password="pass1234")
+        self.video = VideoFile.objects.create(
+            file_name="test.mp4", width=1920, height=1080, uploaded_by=self.user,
+        )
+
+    def test_str(self):
+        export = ExportFile.objects.create(
+            video=self.video, file_name="export.json", created_by=self.user,
+        )
+        self.assertEqual(str(export), "export.json")
+
+    def test_cascade_delete(self):
+        ExportFile.objects.create(
+            video=self.video, file_name="export.json", created_by=self.user,
+        )
+        self.assertEqual(ExportFile.objects.count(), 1)
+        self.video.delete()
+        self.assertEqual(ExportFile.objects.count(), 0)

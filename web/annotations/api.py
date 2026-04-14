@@ -4,7 +4,9 @@ import os
 import sys
 
 import cv2
+from django.core.files.base import ContentFile
 from django.http import JsonResponse
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -17,8 +19,8 @@ if _project_root not in sys.path:
 
 from frame_cache import FrameCache
 
-from .models import Annotation, Category, VideoFile
-from .serializers import AnnotationSerializer, CategorySerializer
+from .models import Annotation, Category, ExportFile, Track, VideoFile
+from .serializers import AnnotationSerializer, CategorySerializer, ExportFileSerializer, TrackSerializer
 from .utils import get_local_video_path
 
 # Module-level shared cache instance (lives for the duration of the process)
@@ -45,6 +47,25 @@ class AnnotationViewSet(viewsets.ModelViewSet):
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
     queryset = Category.objects.all()
+
+
+class TrackViewSet(viewsets.ModelViewSet):
+    serializer_class = TrackSerializer
+
+    def get_queryset(self):
+        qs = Track.objects.filter(created_by=self.request.user)
+        video_id = self.request.query_params.get("video")
+        if video_id is not None:
+            qs = qs.filter(video_id=video_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    def perform_destroy(self, instance):
+        # Null out track FK on orphaned annotations before deleting
+        instance.annotations.update(track=None)
+        instance.delete()
 
 
 @api_view(["DELETE"])
@@ -79,6 +100,7 @@ def export_coco(request, video_id):
 
     annotations = video.annotations.all()
     categories = Category.objects.all()
+    tracks = video.tracks.all()
 
     coco = {
         "images": [video.to_coco_dict()],
@@ -87,6 +109,7 @@ def export_coco(request, video_id):
             {"id": c.pk, "name": c.name, "supercategory": c.supercategory, "color": c.color}
             for c in categories
         ],
+        "tracks": [t.to_coco_dict() for t in tracks],
     }
     return Response(coco)
 
@@ -144,11 +167,30 @@ def import_coco(request):
             image_id_map[img_data["id"]] = video
 
     count = 0
+    track_id_map = {}  # old track_id -> new Track pk
+
+    # Import tracks from COCO data
+    for track_data in data.get("tracks", []):
+        old_id = track_data.get("id")
+        if old_id is not None and target_video is not None:
+            t, _ = Track.objects.get_or_create(
+                name=track_data.get("name", "Track"),
+                video=target_video,
+                created_by=request.user,
+                defaults={
+                    "color": track_data.get("color", "#3b82f6"),
+                    "category_id": track_data.get("category_id", 1),
+                },
+            )
+            track_id_map[old_id] = t.pk
+
     for ann_data in data.get("annotations", []):
         video = image_id_map.get(ann_data.get("image_id"))
         if video is None:
             continue
         bbox = ann_data.get("bbox", [0, 0, 0, 0])
+        raw_track_id = ann_data.get("track_id")
+        track_id = track_id_map.get(raw_track_id) if raw_track_id is not None else None
         Annotation.objects.create(
             image=video,
             category_id=ann_data.get("category_id", 1),
@@ -158,6 +200,7 @@ def import_coco(request):
             bbox_h=bbox[3],
             frame_number=ann_data.get("frame_number", 0),
             iscrowd=bool(ann_data.get("iscrowd", 0)),
+            track_id=track_id,
             created_by=request.user,
         )
         count += 1
@@ -317,4 +360,90 @@ def get_frame(request, video_id, frame_number):
         "frame": frame_b64,
         "frame_number": frame_number,
         "total_frames": total,
+    })
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def export_files(request, video_id):
+    """List or create exported COCO JSON files for a video.
+
+    GET: List all exported files for this video.
+    POST: Generate a COCO JSON export and save it to storage.
+    """
+    try:
+        video = VideoFile.objects.get(pk=video_id, uploaded_by=request.user)
+    except VideoFile.DoesNotExist:
+        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        files = video.export_files.filter(created_by=request.user).order_by("-created_at")
+        serializer = ExportFileSerializer(files, many=True)
+        return Response(serializer.data)
+
+    # POST — generate COCO JSON and save to storage
+    annotations = video.annotations.all()
+    categories = Category.objects.all()
+    tracks = video.tracks.all()
+
+    coco = {
+        "images": [video.to_coco_dict()],
+        "annotations": [a.to_coco_dict() for a in annotations],
+        "categories": [
+            {"id": c.pk, "name": c.name, "supercategory": c.supercategory, "color": c.color}
+            for c in categories
+        ],
+        "tracks": [t.to_coco_dict() for t in tracks],
+    }
+
+    json_bytes = json.dumps(coco, indent=2).encode("utf-8")
+
+    # Use custom name from request or generate default
+    custom_name = request.data.get("file_name")
+    if custom_name:
+        if not custom_name.endswith(".json"):
+            custom_name += ".json"
+        file_name = custom_name
+    else:
+        ts = timezone.now().strftime("%Y%m%d_%H%M%S")
+        base = os.path.splitext(video.file_name)[0]
+        file_name = f"{base}_{ts}.json"
+
+    export_file = ExportFile(video=video, file_name=file_name, created_by=request.user)
+    export_file.file.save(file_name, ContentFile(json_bytes), save=True)
+
+    serializer = ExportFileSerializer(export_file)
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def delete_export_file(request, video_id, export_id):
+    """Delete an exported file."""
+    try:
+        export = ExportFile.objects.get(
+            pk=export_id, video_id=video_id, created_by=request.user
+        )
+    except ExportFile.DoesNotExist:
+        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    export.file.delete(save=False)
+    export.delete()
+    return Response({"detail": "Deleted."}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def download_export_file(request, video_id, export_id):
+    """Return the URL for downloading an exported file."""
+    try:
+        export = ExportFile.objects.get(
+            pk=export_id, video_id=video_id, created_by=request.user
+        )
+    except ExportFile.DoesNotExist:
+        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    return Response({
+        "url": export.file.url,
+        "file_name": export.file_name,
     })

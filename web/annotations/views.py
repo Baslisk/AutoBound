@@ -84,6 +84,39 @@ def upload_video(request):
 @login_required
 def annotate(request, video_id):
     video = get_object_or_404(VideoFile, pk=video_id, uploaded_by=request.user)
+
+    # Re-extract first frame if missing or dimensions are zero
+    if video.file and (not video.frame_image or video.width == 0 or video.height == 0):
+        try:
+            video_path = get_local_video_path(video)
+            cap = cv2.VideoCapture(video_path)
+            w = round(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            h = round(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fc = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps_val = cap.get(cv2.CAP_PROP_FPS)
+            ret, frame = cap.read()
+            cap.release()
+            if w > 0 and h > 0:
+                video.width = w
+                video.height = h
+            if fc > 0:
+                video.frame_count = fc
+            if fps_val and fps_val > 0:
+                video.fps = fps_val
+            if ret and not video.frame_image:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(frame_rgb)
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                    pil_img.save(tmp, format="JPEG")
+                    tmp_path = tmp.name
+                from django.core.files import File
+                with open(tmp_path, "rb") as f:
+                    video.frame_image.save(f"frame_{video.pk}.jpg", File(f), save=False)
+                os.unlink(tmp_path)
+            video.save()
+        except Exception:
+            pass  # JS fallback (img.onerror) will handle this
+
     annotations = video.annotations.filter(frame_number=0)
     categories = Category.objects.all()
 
