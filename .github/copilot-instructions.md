@@ -38,6 +38,11 @@ python run_test_suite.py
 
 # Django tests only
 cd web && python manage.py test --verbosity=2
+
+# Playwright E2E tests (requires Node.js)
+npm install
+npx playwright install chromium
+npm run test:e2e
 ```
 
 ## Database

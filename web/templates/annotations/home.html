@@ -2,48 +2,52 @@
 {% block title %}Home — AutoBound{% endblock %}
 
 {% block content %}
-<section class="upload-section">
-  <h1>AutoBound</h1>
-  <p class="subtitle">Bounding box dataset generation tool</p>
+<div class="workspace">
+  <div class="workspace-welcome">
+    <h1>⬡ AutoBound</h1>
+    <p class="subtitle">Bounding box annotation workspace</p>
+  </div>
 
   {% if error %}
     <div class="alert alert-error">{{ error }}</div>
   {% endif %}
 
-  <form method="post" action="{% url 'upload_video' %}" enctype="multipart/form-data" class="upload-form" id="uploadForm">
-    {% csrf_token %}
-    <div class="drop-zone" id="dropZone">
-      <p class="drop-text">Drag & drop a video file here</p>
-      <p class="drop-subtext">or click to browse</p>
-      <input type="file" name="video_file" id="fileInput" accept="video/*" hidden>
-      <p class="supported-formats">Supported: {{ supported }}</p>
+  <section class="workspace-panel">
+    <div class="panel-header">UPLOAD</div>
+    <form method="post" action="{% url 'upload_video' %}" enctype="multipart/form-data" class="upload-form" id="uploadForm">
+      {% csrf_token %}
+      <div class="drop-zone" id="dropZone">
+        <p class="drop-text">Drag & drop a video file here</p>
+        <p class="drop-subtext">or click to browse</p>
+        <input type="file" name="video_file" id="fileInput" accept="video/*" hidden>
+        <p class="supported-formats">Supported: {{ supported }}</p>
+      </div>
+      <button type="submit" class="btn btn-accent" id="uploadBtn" disabled>Upload & Annotate</button>
+    </form>
+  </section>
+
+  {% if videos %}
+  <section class="workspace-panel">
+    <div class="panel-header">RECENT PROJECTS <span class="panel-header-count">{{ videos|length }}</span></div>
+    <div class="video-grid">
+      {% for v in videos %}
+        <a href="{% url 'annotate' v.pk %}" class="video-card">
+          {% if v.frame_image %}
+            <img src="{{ v.frame_image.url }}" alt="{{ v.file_name }}">
+          {% else %}
+            <div class="video-placeholder">No preview</div>
+          {% endif %}
+          <div class="video-info">
+            <span class="video-name">{{ v.file_name }}</span>
+            <span class="video-dims">{{ v.width }}×{{ v.height }}</span>
+            <span class="video-count">{{ v.annotations.count }} annotations</span>
+          </div>
+        </a>
+      {% endfor %}
     </div>
-    <button type="submit" class="btn btn-accent" id="uploadBtn" disabled>Upload & Annotate</button>
-  </form>
-</section>
-
-{% if videos %}
-<section class="videos-section">
-  <h2>Your Videos</h2>
-  <div class="video-grid">
-    {% for v in videos %}
-      <a href="{% url 'annotate' v.pk %}" class="video-card">
-        {% if v.frame_image %}
-          <img src="{{ v.frame_image.url }}" alt="{{ v.file_name }}">
-        {% else %}
-          <div class="video-placeholder">No preview</div>
-        {% endif %}
-        <div class="video-info">
-          <span class="video-name">{{ v.file_name }}</span>
-          <span class="video-dims">{{ v.width }}×{{ v.height }}</span>
-          <span class="video-count">{{ v.annotations.count }} annotations</span>
-        </div>
-      </a>
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
-
+  </section>
+  {% endif %}
+</div>
 {% endblock %}
 
 {% block extra_scripts %}

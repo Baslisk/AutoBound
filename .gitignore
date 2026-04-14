@@ -60,6 +60,7 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+*.sqlite3
 
 # Media uploads
 web/media/
@@ -167,3 +168,9 @@ cython_debug/
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/
+
+# Node / Playwright
+node_modules/
+test-results/
+playwright-report/
+playwright/.cache/
